@@ -1,6 +1,9 @@
 package com.fons.cloud.ai.trip.agent;
 
+import cn.hutool.core.lang.Assert;
 import cn.hutool.extra.spring.SpringUtil;
+import com.fons.cloud.ai.trip.common.constants.ModelType;
+import com.fons.cloud.common.base.exception.SystemIntervalException;
 import io.agentscope.core.model.Model;
 
 /**
@@ -8,15 +11,32 @@ import io.agentscope.core.model.Model;
  * @author hongqy
  */
 public class ModelFacade {
-    public static final String FAST_MODEL = "fastModel";
 
-    /**
-     * 获取快速模型，常用于简单任务
-     * @return
-     */
     public static Model getFastModel() {
-        return SpringUtil.getBean(FAST_MODEL);
+        return getModel(ModelType.FAST_MODEL);
     }
 
+    public static Model getStrongModel() {
+        return getModel(ModelType.STRONG_MODEL);
+    }
+
+    public static Model getStrongThinkModel() {
+        return getModel(ModelType.STRONG_THING_MODEL);
+    }
+
+    public static Model getStableModel() {
+        return getModel(ModelType.STABLE_MODEL);
+    }
+
+    /**
+     * 根据模型类型获取对应的LLM模型
+     * @param modelType
+     * @return
+     */
+    public static Model getModel(ModelType modelType) {
+        Model model = SpringUtil.getBean(modelType.getBeanName());
+        Assert.notNull(model, () -> SystemIntervalException.of("Not found LLM model with modelType:" + modelType));
+        return model;
+    }
 
 }

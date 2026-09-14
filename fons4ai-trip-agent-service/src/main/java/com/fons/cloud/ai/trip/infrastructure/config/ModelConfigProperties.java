@@ -23,7 +23,6 @@ public class ModelConfigProperties {
         private String apiKey;
         private String baseUrl;
         private String modelName;
-
     }
 
 }

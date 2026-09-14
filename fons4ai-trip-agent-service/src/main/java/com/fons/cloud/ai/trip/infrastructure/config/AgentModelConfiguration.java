@@ -1,10 +1,9 @@
 package com.fons.cloud.ai.trip.infrastructure.config;
 
-import com.fons.cloud.ai.trip.agent.ModelFacade;
 import com.fons.cloud.ai.trip.common.constants.ModelType;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import io.agentscope.core.model.Model;
-import io.agentscope.extensions.model.openai.OpenAIChatModel;
+import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -24,17 +23,49 @@ import java.util.Map;
 public class AgentModelConfiguration {
     private final ModelConfigProperties modelConfigProperties;
 
-    @Bean(name = ModelFacade.FAST_MODEL)
+    @Bean(name = "fastModel")
     public Model fastModel() {
         ModelConfigProperties.ModelConfig config = validModelConfig(ModelType.FAST_MODEL);
-        return OpenAIChatModel.builder()
+        return DashScopeChatModel.builder()
                 .baseUrl(config.getBaseUrl())
                 .modelName(config.getModelName())
-                .stream(true)
-                .
+                .apiKey(config.getApiKey())
+                .enableThinking(false)
                 .build();
     }
 
+    @Bean(name = "strongModel")
+    public Model strongModel() {
+        ModelConfigProperties.ModelConfig config = validModelConfig(ModelType.STRONG_MODEL);
+        return DashScopeChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .apiKey(config.getApiKey())
+                .enableThinking(false)
+                .build();
+    }
+
+    @Bean(name = "strongThinkModel")
+    public Model strongThinkModel() {
+        ModelConfigProperties.ModelConfig config = validModelConfig(ModelType.STRONG_THING_MODEL);
+        return DashScopeChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .apiKey(config.getApiKey())
+                .enableThinking(true)
+                .build();
+    }
+
+    @Bean(name = "stableModel")
+    public Model stableModel() {
+        ModelConfigProperties.ModelConfig config = validModelConfig(ModelType.STABLE_MODEL);
+        return DashScopeChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .apiKey(config.getApiKey())
+                .enableThinking(true)
+                .build();
+    }
 
     private ModelConfigProperties.ModelConfig validModelConfig(ModelType type) {
         Map<ModelType, ModelConfigProperties.ModelConfig> models = modelConfigProperties.getModels();

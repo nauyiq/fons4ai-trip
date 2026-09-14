@@ -37,6 +37,6 @@ mybatis-plus:
 
 
 sys:
-  trace:
-    sql-log:
-      enabled: false
+  sa-token:
+    exclude-paths:
+      - /api/auth/login
