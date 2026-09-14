@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <artifactId>fons4ai</artifactId>
+        <groupId>com.fons.cloud.ai</groupId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>fons4ai-trip-agent-service</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <description>智能差旅助手后端服务</description>
+
+    <properties>
+        <fons4cloud.version>1.0.0</fons4cloud.version>
+        <fons4ai.version>1.0.0</fons4ai.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-dashscope</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-openai</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fons.cloud.ai</groupId>
+            <artifactId>fons4ai-agentscope-starter</artifactId>
+            <version>${fons4ai.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fons.cloud</groupId>
+            <artifactId>fons4cloud-common-lock</artifactId>
+            <version>${fons4cloud.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fons.cloud</groupId>
+            <artifactId>fons4cloud-common-skywalking</artifactId>
+            <version>${fons4cloud.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fons.cloud</groupId>
+            <artifactId>fons4cloud-common-db-datasource</artifactId>
+            <version>${fons4cloud.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fons.cloud</groupId>
+            <artifactId>fons4cloud-common-file</artifactId>
+            <version>${fons4cloud.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fons.cloud</groupId>
+            <artifactId>fons4cloud-auth-satoken</artifactId>
+            <version>${fons4cloud.version}</version>
+        </dependency>
+    </dependencies>
+
+
+    <build>
+        <finalName>fons4ai-trip-agent</finalName>
+        <plugins>
+            <!-- 打包 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${springboot.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal> <!-- 将引入的 jar 打入其中 -->
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
