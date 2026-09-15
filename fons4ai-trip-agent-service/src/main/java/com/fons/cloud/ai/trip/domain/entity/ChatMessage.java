@@ -1,9 +1,12 @@
 package com.fons.cloud.ai.trip.domain.entity;
 
+import cn.hutool.core.util.IdUtil;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
+import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
 import lombok.*;
 
@@ -17,6 +20,7 @@ import java.util.Date;
 @Getter
 @Setter
 @ToString
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName("chat_message")
@@ -34,6 +38,11 @@ public class ChatMessage extends BaseEntity {
     private String conversationId;
 
     /**
+     * 所属agent请求的id
+     */
+    private String runId;
+
+    /**
      * 角色：user/agent/system
      */
     private ChatRole role;
@@ -42,6 +51,11 @@ public class ChatMessage extends BaseEntity {
      * 消息内容
      */
     private String content;
+
+    /**
+     * 消息类型
+     */
+    private ChatMessageContentType type;
 
     /**
      * Agent名称（role=agent 时）
@@ -67,6 +81,25 @@ public class ChatMessage extends BaseEntity {
      * 逻辑删除标志
      */
     @TableLogic
-    private Integer deleted;
+    private boolean deleted;
+
+    public static ChatMessage create(String conversationId, ChatRole role, ChatMessageRequest request) {
+        return ChatMessage.builder()
+                .runId(IdUtil.fastSimpleUUID())
+                .messageId(generateMessageId())
+                .conversationId(conversationId)
+                .content(request.getContent())
+                .type(request.getMessageType())
+                .role(role)
+                .deleted(false)
+                .build();
+    }
+
+    public static String generateMessageId() {
+        return "msg_" + IdUtil.fastSimpleUUID();
+    }
+
+
+
 
 }

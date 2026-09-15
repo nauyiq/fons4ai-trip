@@ -14,6 +14,7 @@ import lombok.*;
 @Getter
 @Setter
 @ToString
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName("chat_conversation")
@@ -39,6 +40,14 @@ public class ChatConversation extends BaseEntity {
      * 逻辑删除标志
      */
     @TableLogic
-    private Integer deleted;
+    private Boolean deleted;
 
+    public static ChatConversation create(String userId, String sessionId) {
+        return ChatConversation.builder()
+                .userId(userId)
+                .conversationId(sessionId)
+                .title("新会话")
+                .deleted(false)
+                .build();
+    }
 }
