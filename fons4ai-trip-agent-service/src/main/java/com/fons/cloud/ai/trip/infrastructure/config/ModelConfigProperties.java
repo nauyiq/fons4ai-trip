@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -12,10 +13,10 @@ import java.util.Map;
  */
 @Getter
 @Setter
-@ConfigurationProperties(prefix = "trip.agent")
+@ConfigurationProperties(prefix = "trip.model")
 public class ModelConfigProperties {
 
-    private Map<ModelType, ModelConfig> models;
+    private Map<ModelType, ModelConfig> configs = new HashMap<>();
 
     @Getter
     @Setter

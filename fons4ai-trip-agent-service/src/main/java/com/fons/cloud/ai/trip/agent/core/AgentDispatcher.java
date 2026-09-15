@@ -1,5 +1,6 @@
-package com.fons.cloud.ai.trip.agent;
+package com.fons.cloud.ai.trip.agent.core;
 
+import com.fons.cloud.ai.agent.api.Agent;
 import com.fons.cloud.ai.agent.api.AgentRegistry;
 import com.fons.cloud.ai.agent.api.AgentRun;
 import com.fons.cloud.ai.agent.infrastructure.session.ActiveAgentSessionStore;
@@ -32,9 +33,18 @@ public class AgentDispatcher {
      */
     public AgentRun execute(AgentRequest request) {
         Optional<String> activeAgent = activeAgentSessionStore.getActiveAgent(request.getUserId(), request.getConversationId());
-        if (activeAgent.isPresent() ) {
-            //
+        if (activeAgent.isPresent() && isContinuation(request)) {
+            // 继续上一轮对话的简单信号
+            Agent agent = agentRegistry.getAgent(activeAgent.get());
+            if (agent == null) {
+                log.warn("Not found agent by registry, agentName:{}", activeAgent.get());
+            } else {
+                return agent.run(request);
+            }
         }
+
+        // 采用正常工作流编排执行Agent
+        return null;
     }
 
     private boolean isContinuation(AgentRequest request) {

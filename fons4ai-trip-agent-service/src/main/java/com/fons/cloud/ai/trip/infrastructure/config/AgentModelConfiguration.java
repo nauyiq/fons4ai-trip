@@ -68,7 +68,7 @@ public class AgentModelConfiguration {
     }
 
     private ModelConfigProperties.ModelConfig validModelConfig(ModelType type) {
-        Map<ModelType, ModelConfigProperties.ModelConfig> models = modelConfigProperties.getModels();
+        Map<ModelType, ModelConfigProperties.ModelConfig> models = modelConfigProperties.getConfigs();
         if (MapUtils.isEmpty(models) || !models.containsKey(type)) {
             throw SystemIntervalException.of("未找到TRAVEL-AGENT模型配置, 请检查");
         }

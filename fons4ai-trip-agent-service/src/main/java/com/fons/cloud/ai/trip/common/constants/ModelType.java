@@ -10,7 +10,6 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum ModelType {
 
-
     /**
      * 快速模型， 用于简单的任务
      */
