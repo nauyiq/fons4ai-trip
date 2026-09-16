@@ -1,5 +1,6 @@
 package com.fons.cloud.ai.trip.domain.entity;
 
+import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fons.cloud.ai.trip.common.constants.ApprovalStatus;
@@ -14,6 +15,7 @@ import lombok.*;
 @Getter
 @Setter
 @ToString
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName("approval_record")
@@ -22,7 +24,7 @@ public class ApprovalRecord extends BaseEntity {
     /**
      * 审批流程实例ID
      */
-    @TableId
+    @TableId(value = "process_instance_id", type = IdType.INPUT)
     private String processInstanceId;
 
     /**

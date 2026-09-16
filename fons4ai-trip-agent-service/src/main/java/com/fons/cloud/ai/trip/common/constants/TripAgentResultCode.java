@@ -17,6 +17,11 @@ public enum TripAgentResultCode implements Result {
     LOGIN_EXPIRED("TA100003", "登录已过期，请重新登录"),
     CHAT_MESSAGE_IS_EMPTY("TA100004", "内容不能为空"),
 
+    APPROVAL_RECORD_NOT_EXIST("TA200001", "审批记录不存在"),
+    TRAVEL_ORDER_NOT_EXIST("TA200002", "差旅单不存在"),
+    TRAVEL_ORDER_STATUS_NOT_EXPECTED("TA200003", "差旅单状态不符合预期"),
+
+
     ;
 
     /**

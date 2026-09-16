@@ -5,6 +5,7 @@ import com.fons.cloud.ai.trip.agent.model.BusinessAgent;
 import com.fons.cloud.ai.trip.agent.model.CompressConfig;
 import com.fons.cloud.ai.trip.agent.model.MasterAgentProperties;
 import com.fons.cloud.ai.trip.infrastructure.client.ModelFacade;
+import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -12,6 +13,8 @@ import io.agentscope.harness.agent.IsolationScope;
 import io.agentscope.harness.agent.filesystem.spec.RemoteFilesystemSpec;
 import io.agentscope.harness.agent.memory.MemoryConfig;
 import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
+import io.agentscope.harness.agent.subagent.SubagentDeclaration;
+import io.agentscope.harness.agent.subagent.WorkspaceMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -31,12 +34,10 @@ import java.time.Duration;
 @RequiredArgsConstructor
 @EnableConfigurationProperties(MasterAgentProperties.class)
 public class MasterAgent {
-
     private final MasterAgentProperties properties;
     private final DistributedStore distributedStore;
 
 
-    @Scope("prototype")
     @Bean(name = "masterAgent")
     public Agent masterAgent() {
         HarnessAgent.Builder builder = HarnessAgent.builder();
@@ -44,6 +45,7 @@ public class MasterAgent {
         builder
                 .name(BusinessAgent.MASTER_AGENT.getAgentName())
                 .model(ModelFacade.getModel(properties.getMainModel()))
+                .sysPrompt(PromptLoader.loadRequired("prompts/master_agent_sys_prompt.md"))
                 .workspace(Paths.get(properties.getWorkspace()))
                 .distributedStore(distributedStore)
                 .filesystem(new RemoteFilesystemSpec().isolationScope(IsolationScope.USER))
@@ -68,7 +70,9 @@ public class MasterAgent {
         // 长期记忆配置
         builder.
                 memory(MemoryConfig.builder()
-                        .flushTrigger(MemoryConfig.FlushTrigger.throttled(
+                        .flushPrompt(PromptLoader.loadRequired("prompts/master_agent_flush_memory.md"))
+                        .flushTrigger(MemoryConfig.FlushTrigger
+                                .throttled(
                                 Duration.ofMinutes(properties.getMemoryFlushMinutes())))
                         .build());
 
@@ -76,6 +80,14 @@ public class MasterAgent {
 
 
         // 子Agent配置
+        SubagentDeclaration itineraryManagerSubAgentDeclaration = SubagentDeclaration.builder()
+                .name(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName())
+                .description(BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription())
+                .inlineAgentsBody()
+                .workspaceMode(WorkspaceMode.ISOLATED)
+                .tools()
+                .build();
+
 
         return null;
     }
