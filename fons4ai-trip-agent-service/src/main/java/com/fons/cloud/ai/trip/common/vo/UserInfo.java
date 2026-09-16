@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.common.response;
+package com.fons.cloud.ai.trip.common.vo;
 
 import lombok.*;
 

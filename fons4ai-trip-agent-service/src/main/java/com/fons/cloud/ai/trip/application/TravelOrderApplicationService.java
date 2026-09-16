@@ -4,9 +4,13 @@ import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.StrUtil;
+import com.alibaba.fastjson2.JSON;
 import com.fons.cloud.ai.trip.common.constants.OrderStatus;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
+import com.fons.cloud.ai.trip.common.dto.CancelOderOutcome;
+import com.fons.cloud.ai.trip.common.request.TravelOrderCancelRequest;
 import com.fons.cloud.ai.trip.common.request.TravelOrderCreateRequest;
+import com.fons.cloud.ai.trip.common.response.CancelTravelApprovalResult;
 import com.fons.cloud.ai.trip.common.response.SubmitTravelApprovalResult;
 import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
@@ -34,7 +38,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TravelOrderApplicationService {
     private final TransactionTemplate transactionTemplate;
-
     private final TravelOrderDomainService travelOrderDomainService;
     private final ApprovalRecordDomainService approvalRecordDomainService;
 
@@ -44,6 +47,7 @@ public class TravelOrderApplicationService {
      * @return
      */
     public R<SubmitTravelApprovalResult> createTravelOrder(TravelOrderCreateRequest request) {
+        log.info("【创建差旅单请求】 request:{}", JSON.toJSONString(request));
         TravelOrder existOrder = findDuplicateTravelOrder(request);
         if (existOrder != null) {
             // 已存在差旅单， 构造幂等成功的结果返回
@@ -80,6 +84,35 @@ public class TravelOrderApplicationService {
             return R.success(buildApprovalResult(order, approvalRecord));
         }
     }
+
+    /**
+     * 取消差旅单和审批单
+     * @param request
+     * @return
+     */
+    public R<CancelOderOutcome> cancelTravelOrder(TravelOrderCancelRequest request) {
+        log.info("【取消差旅单请求】 request:{}", JSON.toJSONString(request));
+        TravelOrder existOrder = travelOrderDomainService.findByOrderIdAndUserId(request.getUserId(), request.getOderId());
+        if (existOrder == null) {
+            return R.failed(TripAgentResultCode.TRAVEL_ORDER_NOT_EXIST);
+        }
+
+        // 状态判断
+        OrderStatus orderStatus = existOrder.getStatus();
+        if (orderStatus == OrderStatus.CANCELLED) {
+            return R.failed(TripAgentResultCode.TRAVEL_ORDER_STATUS_NOT_SUPPORT_CANCEL.getCode(), "差旅单已取消，不可重复取消");
+        }
+        if (orderStatus == OrderStatus.COMPLETED) {
+            return R.failed(TripAgentResultCode.TRAVEL_ORDER_STATUS_NOT_SUPPORT_CANCEL.getCode(), "差旅单已完成，不可取消");
+        }
+        if (orderStatus == OrderStatus.APPROVED && !request.getForce()) {
+            return R.failed(TripAgentResultCode.TRAVEL_ORDER_CANCEL_NEED_USER_SECOND_CONFIRM.getCode(), "该差旅单已审批通过，取消后不可恢复且可能影响已预订行程。需要用户二次确认");
+        }
+
+        CancelOderOutcome outcome = travelOrderDomainService.cancelWithApproval(existOrder, request.getReason());
+        return R.ok(outcome);
+    }
+
 
     /**
      * 查库验证差旅单状态，确保写操作真正落库成功。

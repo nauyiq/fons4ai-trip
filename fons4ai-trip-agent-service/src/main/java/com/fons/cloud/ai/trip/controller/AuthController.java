@@ -2,8 +2,8 @@ package com.fons.cloud.ai.trip.controller;
 
 import com.fons.cloud.ai.trip.application.AuthApplicationService;
 import com.fons.cloud.ai.trip.common.request.LoginRequest;
-import com.fons.cloud.ai.trip.common.response.TokenResponse;
-import com.fons.cloud.ai.trip.common.response.UserInfo;
+import com.fons.cloud.ai.trip.common.vo.TokenInfo;
+import com.fons.cloud.ai.trip.common.vo.UserInfo;
 import com.fons.cloud.common.result.R;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,9 +26,9 @@ public class AuthController {
      * @return
      */
     @PostMapping("/login")
-    public R<TokenResponse> login(@Valid LoginRequest request) {
+    public R<TokenInfo> login(@Valid LoginRequest request) {
         String token = authApplicationService.login(request);
-        return R.ok(TokenResponse.of(token));
+        return R.ok(TokenInfo.of(token));
     }
 
     /**

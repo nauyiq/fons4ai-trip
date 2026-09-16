@@ -20,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Scope;
 
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -83,9 +82,9 @@ public class MasterAgent {
         SubagentDeclaration itineraryManagerSubAgentDeclaration = SubagentDeclaration.builder()
                 .name(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName())
                 .description(BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription())
-                .inlineAgentsBody()
+//                .inlineAgentsBody()
                 .workspaceMode(WorkspaceMode.ISOLATED)
-                .tools()
+//                .tools()
                 .build();
 
 

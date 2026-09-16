@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.common.response;
+package com.fons.cloud.ai.trip.common.vo;
 
 import cn.dev33.satoken.stp.StpUtil;
 import lombok.Getter;
@@ -12,15 +12,15 @@ import java.io.Serializable;
  */
 @Getter
 @Setter
-public class TokenResponse implements Serializable {
+public class TokenInfo implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
     private String token;
     private String tokenName;
 
-    public static TokenResponse of(String token) {
-        TokenResponse response = new TokenResponse();
+    public static TokenInfo of(String token) {
+        TokenInfo response = new TokenInfo();
         response.setToken(token);
         response.setTokenName(StpUtil.getTokenName());
         return response;

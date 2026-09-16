@@ -20,7 +20,8 @@ public enum TripAgentResultCode implements Result {
     APPROVAL_RECORD_NOT_EXIST("TA200001", "审批记录不存在"),
     TRAVEL_ORDER_NOT_EXIST("TA200002", "差旅单不存在"),
     TRAVEL_ORDER_STATUS_NOT_EXPECTED("TA200003", "差旅单状态不符合预期"),
-
+    TRAVEL_ORDER_STATUS_NOT_SUPPORT_CANCEL("TA200004", "差旅单状态不支持取消"),
+    TRAVEL_ORDER_CANCEL_NEED_USER_SECOND_CONFIRM("TA200005", "差旅单取消需要用户二次确认"),
 
     ;
 

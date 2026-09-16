@@ -4,11 +4,14 @@ import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
-import com.alibaba.fastjson2.JSON;
 import com.fons.cloud.ai.trip.application.TravelOrderApplicationService;
 import com.fons.cloud.ai.trip.common.constants.OrderStatus;
+import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
+import com.fons.cloud.ai.trip.common.dto.CancelOderOutcome;
+import com.fons.cloud.ai.trip.common.request.TravelOrderCancelRequest;
 import com.fons.cloud.ai.trip.common.request.TravelOrderCreateRequest;
+import com.fons.cloud.ai.trip.common.response.CancelTravelApprovalResult;
 import com.fons.cloud.ai.trip.common.response.SubmitTravelApprovalResult;
 import com.fons.cloud.common.result.R;
 import io.agentscope.core.agent.RuntimeContext;
@@ -36,29 +39,17 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class TravelOrderWriteTools {
     private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
-    public static final List<String> TOOLS = List.of("submit_travel_approval");
+    public static final List<String> TOOLS = List.of("submit_travel_approval", "cancel_travel_order");
 
     private final TravelOrderApplicationService travelOrderApplicationService;
 
-
-    /**
-     * 提交审批（同时创建差旅单 + 审批单，双向关联）
-     * @param context
-     * @param destination
-     * @param departureCity
-     * @param departureDate
-     * @param returnDate
-     * @param purpose
-     * @return
-     */
     @Tool(name = "submit_travel_approval", description = "一次性创建差旅申请单（差旅单）和审批单，并将两者双向关联。" + "执行步骤：① 根据出行信息生成差旅单（DRAFT）；" + "② 提交审批单（PENDING）并绑定差旅单ID；" + "③ 将差旅单状态更新为 SUBMITTED 并写入审批单ID。" + "返回差旅单ID（orderId）和审批单ID（processInstanceId）。" + "日期字段必须为 YYYY-MM-DD 格式（例如 2026-07-15），否则会返回参数错误。")
     public R<SubmitTravelApprovalResult> submitTravelApproval(RuntimeContext context,
                                                               @ToolParam(name = "destination", description = "目的地城市") String destination,
                                                               @ToolParam(name = "departure_city", description = "出发城市") String departureCity,
                                                               @ToolParam(name = "departure_date", description = "出发日期，必须为 YYYY-MM-DD 格式，例如 2026-07-15") String departureDate,
                                                               @ToolParam(name = "return_date", description = "返回日期，必须为 YYYY-MM-DD 格式，例如 2026-07-18") String returnDate,
-                                                              @ToolParam(name = "purpose", description = "出差事由") String purpose
-                                       ) {
+                                                              @ToolParam(name = "purpose", description = "出差事由") String purpose) {
         String userId = context.getUserId();
         log.info("[TOOL][submit_travel_approval] userId={}, destination={}, departureDate={}, returnDate={}", userId, destination, departureDate, returnDate);
 
@@ -114,6 +105,59 @@ public class TravelOrderWriteTools {
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), "创建差旅单失败: " + e.getMessage());
         }
     }
+
+
+    @Tool(name = "cancel_travel_order", description = "取消出差申请：将差旅单状态设为 CANCELLED，同时撤销关联的审批单（若存在）。" + "仅 DRAFT/SUBMITTED 状态可直接取消；APPROVED 状态会给出警告并要求用户二次确认（force=true）。")
+    public R<CancelTravelApprovalResult> cancelTravelOrder(RuntimeContext context,
+                                                           @ToolParam(name = "order_id", description = "要取消的差旅单ID") String orderId,
+                                                           @ToolParam(name = "reason", description = "取消原因，可选", required = false) String reason,
+                                                           @ToolParam(name = "force", description = "是否强制取消已审批的差旅单，默认 false", required = false) Boolean force) {
+        String userId = context.getUserId();
+        log.info("[TOOL][cancel_travel_order] userId={}, orderId={}, force={}", userId, orderId, force);
+
+        // 参数校验
+        if (StringUtils.isBlank(userId)) {
+            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "user_id 不能为空");
+        }
+        if (StringUtils.isBlank(orderId)) {
+            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "order_id 不能为空");
+        }
+
+        try {
+            // 调用应用层服务发起差旅单的取消
+            R<CancelOderOutcome> cancelResult = travelOrderApplicationService.cancelTravelOrder(TravelOrderCancelRequest.builder()
+                    .userId(userId)
+                    .oderId(orderId)
+                    .reason(reason)
+                    .force(force).build());
+            if (!cancelResult.isSuccess()) {
+                // 审批单取消失败 根据业务码进行判断 响应给LLM不同的错误信息
+                String code = cancelResult.getCode();
+                String message = cancelResult.getMessage();
+                log.warn("[TOOL][cancel_travel_order]差旅单取消失败, code:{}, message:{}", code, message);
+
+                if (TripAgentResultCode.TRAVEL_ORDER_NOT_EXIST.getCode().equals(code)) {
+                    return R.failed(TripAgentToolResultCode.ORDER_NOT_FOUND.getCode(), "差旅单不存在：" + orderId);
+                }
+                if (TripAgentResultCode.TRAVEL_ORDER_STATUS_NOT_SUPPORT_CANCEL.getCode().equals(code)) {
+                    return R.failed(TripAgentToolResultCode.INVALID_STATE.getCode(), "差旅单取消失败, cause:" + message);
+                }
+                if (TripAgentResultCode.TRAVEL_ORDER_CANCEL_NEED_USER_SECOND_CONFIRM.getCode().equals(code)) {
+                    return R.failed(TripAgentToolResultCode.NEED_USER_CONFIRM.getCode(), StrUtil.format("差旅单取消失败, 该差旅单已审批通过，修改将撤销当前审批并重新发起新流程，请用户明确确认后继续（传入 force=true）"));
+                }
+
+
+            }
+
+
+
+        } catch (Exception e) {
+
+        }
+
+        return null;
+    }
+
 
 
     private List<String> submitTravelParamsValid(String destination, String departureCity, String departureDate, String returnDate, String purpose, String userId) {

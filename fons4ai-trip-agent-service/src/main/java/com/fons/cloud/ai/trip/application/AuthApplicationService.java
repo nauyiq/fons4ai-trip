@@ -4,7 +4,7 @@ import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.constants.UserRole;
 import com.fons.cloud.ai.trip.common.request.LoginRequest;
-import com.fons.cloud.ai.trip.common.response.UserInfo;
+import com.fons.cloud.ai.trip.common.vo.UserInfo;
 import com.fons.cloud.ai.trip.domain.entity.User;
 import com.fons.cloud.ai.trip.domain.service.UserDomainService;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;

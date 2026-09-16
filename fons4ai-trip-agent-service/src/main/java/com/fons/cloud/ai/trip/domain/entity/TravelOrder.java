@@ -10,6 +10,8 @@ import com.fons.cloud.db.mybatisplus.BaseEntity;
 import lombok.*;
 import org.aspectj.apache.bcel.generic.RET;
 
+import java.util.Date;
+
 /**
  * 差旅申请单
  *
@@ -92,5 +94,10 @@ public class TravelOrder extends BaseEntity {
     public void submitted(String processInstanceId) {
         setApprovalId(processInstanceId);
         setStatus(OrderStatus.SUBMITTED);
+    }
+
+    public void cancel() {
+        setStatus(OrderStatus.CANCELLED);
+        setUpdated(new Date());
     }
 }
