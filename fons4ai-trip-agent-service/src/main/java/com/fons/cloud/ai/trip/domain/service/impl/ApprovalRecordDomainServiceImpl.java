@@ -1,6 +1,8 @@
 package com.fons.cloud.ai.trip.domain.service.impl;
 
 import com.alibaba.fastjson2.JSON;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fons.cloud.ai.trip.common.constants.ApprovalStatus;
 import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
@@ -36,6 +38,19 @@ public class ApprovalRecordDomainServiceImpl extends ServiceImpl<ApprovalRecordM
         return record;
     }
 
+    @Override
+    public ApprovalRecord findByIdAndUserId(String id, String userId) {
+        return getOne(Wrappers.lambdaQuery(ApprovalRecord.class).eq(ApprovalRecord::getProcessInstanceId, id).eq(ApprovalRecord::getUserId, userId));
+    }
+
+    @Override
+    public ApprovalRecord findLatestByUserId(String userId) {
+        LambdaQueryWrapper<ApprovalRecord> wrapper = Wrappers.lambdaQuery(ApprovalRecord.class)
+                .eq(ApprovalRecord::getUserId, userId)
+                .orderByDesc(ApprovalRecord::getCreated)
+                .last("Limit 1");
+        return getOne(wrapper);
+    }
 
     private static String buildApprovalForm(TravelOrder order) {
         Map<String, Object> form = new LinkedHashMap<>();

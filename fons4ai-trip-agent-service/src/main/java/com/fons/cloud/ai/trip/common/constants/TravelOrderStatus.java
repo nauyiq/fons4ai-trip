@@ -11,7 +11,7 @@ import lombok.Getter;
  */
 @Getter
 @AllArgsConstructor
-public enum OrderStatus {
+public enum TravelOrderStatus {
 
     /**
      * 草稿
@@ -48,5 +48,14 @@ public enum OrderStatus {
      * 中文显示名
      */
     private final String label;
+
+    public static TravelOrderStatus findByCode(String code) {
+        for (TravelOrderStatus status : values()) {
+            if (status.code.equals(code)) {
+                return status;
+            }
+        }
+        return null;
+    }
 
 }

@@ -3,6 +3,7 @@ package com.fons.cloud.ai.trip.domain.entity;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fons.cloud.ai.trip.common.constants.Gender;
+import com.fons.cloud.ai.trip.common.constants.IdType;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
 import com.github.houbb.sensitive.annotation.strategy.SensitiveStrategyCardId;
 import com.github.houbb.sensitive.annotation.strategy.SensitiveStrategyChineseName;
@@ -57,7 +58,7 @@ public class UserProfile extends BaseEntity {
     /**
      * 证件类型（0-身份证 1-护照 2-其他 3-回乡证 4-军官证 5-警官证 6-港澳通行证 7-台胞证 8-台湾通行证 9-外国人永久居留身份证）
      */
-    private Integer idType;
+    private IdType idType;
 
     /**
      * 证件号码（身份证 / 护照等），用于机票预订
