@@ -1,6 +1,11 @@
 logging:
   config: classpath:logback.xml
 
+trip:
+  agent:
+    time-context:
+      zone-id: Asia/Shanghai
+
 server:
   port: ${SERVER_PORT:8080}
 

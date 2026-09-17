@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.infrastructure.util;
 
-import com.fons.cloud.ai.trip.infrastructure.config.CityTransitTimeProperties;
+import com.fons.cloud.ai.trip.infrastructure.config.properties.CityTransitTimeProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

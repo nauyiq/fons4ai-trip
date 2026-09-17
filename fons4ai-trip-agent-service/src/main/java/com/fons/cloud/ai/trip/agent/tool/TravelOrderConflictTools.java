@@ -231,7 +231,7 @@ public class TravelOrderConflictTools {
     }
 
     private LocalDate parseDate(String date) {
-        if (date == null || !date.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
+        if (date == null || date.length() != 10) {
             throw new DateTimeParseException("日期必须使用 YYYY-MM-DD 格式", StringUtils.defaultString(date), 0);
         }
         return LocalDate.parse(date);

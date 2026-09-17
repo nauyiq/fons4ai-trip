@@ -33,7 +33,6 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * 差旅单全生命周期工具集：提交审批、取消出差申请、修改出差申请。
@@ -43,7 +42,6 @@ import java.util.regex.Pattern;
 @Component
 @RequiredArgsConstructor
 public class TravelOrderWriteTools {
-    private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
     public static final List<String> TOOLS = List.of("submit_travel_approval", "cancel_travel_order", "modify_travel_order");
 
     private final TravelOrderApplicationService travelOrderApplicationService;
@@ -309,7 +307,7 @@ public class TravelOrderWriteTools {
         if (date == null || date.isBlank()) {
             return fieldName + " 不能为空";
         }
-        if (!DATE_PATTERN.matcher(date).matches()) {
+        if (date.length() != 10) {
             return fieldName + " 格式错误，必须为 YYYY-MM-DD（如 2026-07-15），实际值为：" + date;
         }
         try {

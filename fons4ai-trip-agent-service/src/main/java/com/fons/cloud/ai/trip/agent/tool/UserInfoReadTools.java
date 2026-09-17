@@ -91,7 +91,7 @@ public class UserInfoReadTools {
         String namePinyin = profile == null ? null : StringUtils.trimToNull(profile.getNamePinyin());
         String email = profile == null ? null : StringUtils.trimToNull(profile.getEmail());
         String chineseName = profile == null ? null : StringUtils.trimToNull(profile.getChineseName());
-        Integer idType = profile == null ? null : profile.getIdType().getCode();
+        Integer idType = profile == null || profile.getIdType() == null ? null : profile.getIdType().getCode();
         String idNumber = profile == null ? null : StringUtils.trimToNull(profile.getIdNumber());
         String phone = profile == null ? null : StringUtils.trimToNull(profile.getPhone());
         String gender = profile == null || profile.getGender() == null ? null : profile.getGender().getCode();

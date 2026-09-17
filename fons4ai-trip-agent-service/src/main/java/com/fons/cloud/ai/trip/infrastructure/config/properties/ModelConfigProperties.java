@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.infrastructure.config;
+package com.fons.cloud.ai.trip.infrastructure.config.properties;
 
 import com.fons.cloud.ai.trip.common.constants.ModelType;
 import lombok.Getter;

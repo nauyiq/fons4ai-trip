@@ -1,5 +1,6 @@
 package com.fons.cloud.ai.trip.common.constants;
 
+import com.baomidou.mybatisplus.annotation.EnumValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -23,6 +24,7 @@ public enum IdType {
     FOREIGN_PERMANENT_RESIDENT_ID_CARD(9, "外国人永久居留身份证");
 
     /** 存入数据库的证件类型编码。 */
+    @EnumValue
     private final Integer code;
 
     /** 中文证件类型名称。 */

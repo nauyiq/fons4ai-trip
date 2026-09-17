@@ -1,5 +1,6 @@
 package com.fons.cloud.ai.trip.agent.tool;
 
+import com.fons.cloud.ai.trip.agent.model.TripTimeContext;
 import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.response.CheckTravelTimeValidityResult;
@@ -8,16 +9,18 @@ import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.ApprovalRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
+import com.fons.cloud.ai.trip.infrastructure.config.TripTimeContextConfiguration;
 import com.fons.cloud.common.result.R;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -30,12 +33,20 @@ import java.util.List;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class TravelOrderReadTools {
     public static final List<String> TOOLS = List.of("query_travel_order", "query_travel_order_by_order_id", "query_travel_orders", "query_approval_status", "check_travel_time_validity");
 
     private final TravelOrderDomainService travelOrderDomainService;
     private final ApprovalRecordDomainService approvalRecordDomainService;
+    private final Clock clock;
+
+    public TravelOrderReadTools(TravelOrderDomainService travelOrderDomainService,
+            ApprovalRecordDomainService approvalRecordDomainService,
+            @Qualifier(TripTimeContextConfiguration.TRIP_AGENT_CLOCK) Clock clock) {
+        this.travelOrderDomainService = travelOrderDomainService;
+        this.approvalRecordDomainService = approvalRecordDomainService;
+        this.clock = clock;
+    }
 
     @Tool(name = "query_travel_order", description = "按出发城市、目的地和出发日期查询当前用户的差旅单候选列表，包含各状态。多条匹配时先让用户选择目标；无匹配时返回成功和空列表。")
     public R<List<TravelOrder>> queryTravelOrder(RuntimeContext context,
@@ -159,7 +170,9 @@ public class TravelOrderReadTools {
     public R<CheckTravelTimeValidityResult> checkTravelTimeValidity(RuntimeContext context,
             @ToolParam(name = "order_id", description = "已确定的目标差旅申请单号，不是审批单号或预订单号。") String orderId) {
         String userId = context.getUserId();
-        LocalDate today = LocalDate.now();
+        // 优先沿用本轮模型日期；独立调用工具时也使用配置的业务时区。
+        TripTimeContext timeContext = context.get(TripTimeContext.class);
+        LocalDate today = timeContext == null ? LocalDate.now(clock) : timeContext.currentDate();
         log.info("[TOOL][check_travel_time_validity] userId={}, orderId={}, today={}", userId, orderId, today);
 
         // 参数校验
@@ -221,13 +234,13 @@ public class TravelOrderReadTools {
         LocalDate end = null;
         try {
             if (StringUtils.isNotBlank(startDate)) {
-                if (!startDate.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
+                if (startDate.length() != 10) {
                     return "日期必须使用 YYYY-MM-DD 格式";
                 }
                 start = LocalDate.parse(startDate);
             }
             if (StringUtils.isNotBlank(endDate)) {
-                if (!endDate.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
+                if (endDate.length() != 10) {
                     return "日期必须使用 YYYY-MM-DD 格式";
                 }
                 end = LocalDate.parse(endDate);
