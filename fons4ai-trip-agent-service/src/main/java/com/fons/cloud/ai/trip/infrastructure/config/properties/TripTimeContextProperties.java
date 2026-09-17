@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * 差旅 Agent 的业务时间配置，不依赖服务器默认时区。
+ * @author Administrator
  */
 @Getter
 @Setter

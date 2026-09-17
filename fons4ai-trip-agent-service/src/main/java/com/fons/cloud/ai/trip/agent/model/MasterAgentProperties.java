@@ -39,7 +39,12 @@ public class MasterAgentProperties {
     private Integer memoryFlushMinutes = 10;
 
     /**
+     * 最大工具尝试次数，默认3次
+     */
+    private Integer maxToolAttempts = 3;
+
+    /**
      * 上下文压缩配置
      */
-    private CompressConfig compress;
+    private CompressConfig compress = new CompressConfig();
 }

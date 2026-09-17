@@ -1,6 +1,7 @@
 package com.fons.cloud.ai.trip.infrastructure.config;
 
 import com.fons.cloud.ai.trip.infrastructure.config.properties.TripTimeContextProperties;
+import com.fons.cloud.common.base.exception.SystemIntervalException;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,7 +23,7 @@ public class TripTimeContextConfiguration {
     public Clock tripAgentClock(TripTimeContextProperties properties) {
         String zoneId = properties.getZoneId();
         if (zoneId == null || zoneId.isBlank()) {
-            throw new IllegalArgumentException("trip.agent.time-context.zone-id must not be blank");
+            throw SystemIntervalException.of("trip.agent.time-context.zone-id must not be blank");
         }
         return Clock.system(ZoneId.of(zoneId.trim()));
     }

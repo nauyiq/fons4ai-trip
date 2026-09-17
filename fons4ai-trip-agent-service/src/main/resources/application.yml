@@ -1,10 +1,6 @@
 logging:
   config: classpath:logback.xml
 
-trip:
-  agent:
-    time-context:
-      zone-id: Asia/Shanghai
 
 server:
   port: ${SERVER_PORT:8080}
@@ -47,3 +43,36 @@ sys:
   sa-token:
     exclude-paths:
       - /api/auth/login
+  agent:
+    observability:
+      enabled: true
+      override-global: true
+      langfuse:
+        enabled: true
+        access-id: ${OBSERVABILITY_ACCESS_ID}
+        access-secret: ${OBSERVABILITY_ACCESS_SECRET}
+        endpoint: ${OBSERVABILITY_ENDPOINT}
+        service-name: ${spring.application.name}
+
+trip:
+  model:
+    configs:
+     strong-model:
+       base-url: ${MODEL_BASE_URL}
+       api-key: ${MODEL_API_KEY}
+       model-name: qwen3.7-max
+     strong-thing-model:
+       base-url: ${MODEL_BASE_URL}
+       api-key: ${MODEL_API_KEY}
+       model-name: qwen3.7-max
+     stable-model:
+       base-url: ${MODEL_BASE_URL}
+       api-key: ${MODEL_API_KEY}
+       model-name: glm-5.1
+     fast-model:
+       base-url: ${MODEL_BASE_URL}
+       api-key: ${MODEL_API_KEY}
+       model-name: qwen3.6-flash
+  agent:
+    time-context:
+      zone-id: Asia/Shanghai

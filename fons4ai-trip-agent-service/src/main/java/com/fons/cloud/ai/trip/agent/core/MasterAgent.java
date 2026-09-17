@@ -106,6 +106,7 @@ public class MasterAgent {
     private HarnessAgent.Builder commonBuilder() {
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .middleware(tripTimeContextMiddleware)
+                .middleware(fonsAgentTraceMiddleware)
                 .model(ModelFacade.getModel(properties.getMainModel()))
                 .workspace(Paths.get(properties.getWorkspace()))
                 .distributedStore(distributedStore)
@@ -113,13 +114,14 @@ public class MasterAgent {
                 .maxIters(properties.getMaxIterations())
                 .toolExecutionConfig(ExecutionConfig.builder()
                         .timeout(Duration.ofSeconds(properties.getToolTimeoutSeconds()))
-                        .maxAttempts(3)
+                        .maxAttempts(properties.getMaxToolAttempts())
                         .build());
 
         // 配置上下文压缩
         CompressConfig compressConfig = properties.getCompress();
         builder
                 .compaction(CompactionConfig.builder()
+                        .model(ModelFacade.getModel(compressConfig.getCompressModel()))
                         .triggerTokens(compressConfig.getTriggerTokens())
                         .triggerMessages(compressConfig.getTriggerMessages())
                         .keepMessages(compressConfig.getKeepMessages())
@@ -136,10 +138,6 @@ public class MasterAgent {
                                 .throttled(
                                         Duration.ofMinutes(properties.getMemoryFlushMinutes())))
                         .build());
-
-        // middleware配置 这里配置的是父子Agent公用的
-        builder.middleware(fonsAgentTraceMiddleware);
-        builder.middleware(tripTimeContextMiddleware);
 
         return builder;
     }
