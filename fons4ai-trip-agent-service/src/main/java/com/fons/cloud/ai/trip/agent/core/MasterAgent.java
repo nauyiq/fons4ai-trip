@@ -1,12 +1,20 @@
 package com.fons.cloud.ai.trip.agent.core;
 
 import com.fons.cloud.ai.agent.api.Agent;
+import com.fons.cloud.ai.agent.api.AgentType;
+import com.fons.cloud.ai.agent.core.AgentScopeHarnessAgent;
+import com.fons.cloud.ai.agent.core.AgentTaskManager;
+import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceMiddleware;
+import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.model.BusinessAgent;
 import com.fons.cloud.ai.trip.agent.model.CompressConfig;
 import com.fons.cloud.ai.trip.agent.model.MasterAgentProperties;
+import com.fons.cloud.ai.trip.agent.tool.*;
 import com.fons.cloud.ai.trip.infrastructure.client.ModelFacade;
+import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
@@ -23,9 +31,11 @@ import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * 主Agent，负责Agent的路由/多意图识别/结果整合等
+ *
  * @author hongqy
  */
 @Slf4j
@@ -35,16 +45,68 @@ import java.time.Duration;
 public class MasterAgent {
     private final MasterAgentProperties properties;
     private final DistributedStore distributedStore;
+    private final AgentTaskManager agentTaskManager;
 
+    // == middleware
+    // 这里表示启用框架层提供的可观测性，配置文件里面一定要有sys.agent.observability的配置
+    private final FonsAgentTraceMiddleware fonsAgentTraceMiddleware;
+    // 为每轮请求提供可信日期 父子Agent公用
+    private final TripTimeContextMiddleware tripTimeContextMiddleware;
+    // 持久化当前会话顶层Agent身份的中间件
+    private final ActiveAgentPersistenceMiddleware activeAgentPersistenceMiddleware;
+
+    // == 业务工具清单
+    private final BookingReadTools bookingReadTools;
+    private final TravelOrderReadTools travelOrderReadTools;
+    private final TravelOrderWriteTools travelOrderWriteTools;
+    private final TravelOrderConflictTools travelOrderConflictTools;
+    private final UserInfoReadTools userInfoReadTools;
+    private final UserInfoWriteTools userInfoWriteTools;
+
+    @Bean(name = "itineraryManageAgent")
+    public HarnessAgent itineraryManageAgent() {
+        Toolkit toolkit = new Toolkit();
+        toolkit.registerTool(bookingReadTools);
+        toolkit.registerTool(travelOrderReadTools);
+        toolkit.registerTool(travelOrderWriteTools);
+        toolkit.registerTool(travelOrderConflictTools);
+        toolkit.registerTool(userInfoReadTools);
+        toolkit.registerTool(userInfoWriteTools);
+
+        return commonBuilder()
+                .name(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName())
+                .description(BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription())
+                .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-manage-agent-system.md"))
+                .toolkit(toolkit)
+                .disableSubagents()
+                .build();
+    }
 
     @Bean(name = "masterAgent")
-    public Agent masterAgent() {
-        HarnessAgent.Builder builder = HarnessAgent.builder();
-        // 基础配置
-        builder
+    public Agent masterAgent(HarnessAgent itineraryManageAgent) {
+        HarnessAgent.Builder masterBuilder = commonBuilder()
                 .name(BusinessAgent.MASTER_AGENT.getAgentName())
+                .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
+                .middleware(activeAgentPersistenceMiddleware);
+
+        // 配置行程管理子Agent
+        masterBuilder.subagentFactory(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName(), BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription(),
+                name -> itineraryManageAgent);
+
+        // 采用fons4ai契约的agent实例
+        return AgentScopeHarnessAgent.builder()
+                .agentName(BusinessAgent.MASTER_AGENT.getAgentName())
+                .agentType(AgentType.HARNESS)
+                .agentTaskManager(agentTaskManager)
+                .delegateBuilder(masterBuilder)
+                .inputRequiredEnabled(true)
+                .build();
+    }
+
+    private HarnessAgent.Builder commonBuilder() {
+        HarnessAgent.Builder builder = HarnessAgent.builder()
+                .middleware(tripTimeContextMiddleware)
                 .model(ModelFacade.getModel(properties.getMainModel()))
-                .sysPrompt(PromptLoader.loadRequired("prompts/master_agent_sys_prompt.md"))
                 .workspace(Paths.get(properties.getWorkspace()))
                 .distributedStore(distributedStore)
                 .filesystem(new RemoteFilesystemSpec().isolationScope(IsolationScope.USER))
@@ -69,26 +131,17 @@ public class MasterAgent {
         // 长期记忆配置
         builder.
                 memory(MemoryConfig.builder()
-                        .flushPrompt(PromptLoader.loadRequired("prompts/master_agent_flush_memory.md"))
+                        .flushPrompt(PromptLoader.loadRequired("prompt/master_agent_flush_memory.md"))
                         .flushTrigger(MemoryConfig.FlushTrigger
                                 .throttled(
-                                Duration.ofMinutes(properties.getMemoryFlushMinutes())))
+                                        Duration.ofMinutes(properties.getMemoryFlushMinutes())))
                         .build());
 
-        // 工具配置
+        // middleware配置 这里配置的是父子Agent公用的
+        builder.middleware(fonsAgentTraceMiddleware);
+        builder.middleware(tripTimeContextMiddleware);
 
-
-        // 子Agent配置
-        SubagentDeclaration itineraryManagerSubAgentDeclaration = SubagentDeclaration.builder()
-                .name(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName())
-                .description(BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription())
-//                .inlineAgentsBody()
-                .workspaceMode(WorkspaceMode.ISOLATED)
-//                .tools()
-                .build();
-
-
-        return null;
+        return builder;
     }
 
 

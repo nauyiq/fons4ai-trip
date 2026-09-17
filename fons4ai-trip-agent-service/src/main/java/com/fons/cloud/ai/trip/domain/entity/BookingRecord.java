@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.fons.cloud.ai.trip.common.constants.BizType;
+import com.fons.cloud.ai.trip.common.constants.BookingType;
 import com.fons.cloud.ai.trip.common.constants.BookingStatus;
 import com.fons.cloud.ai.trip.common.constants.PaymentStatus;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
@@ -55,7 +55,7 @@ public class BookingRecord extends BaseEntity {
     /**
      * 预订业务类型: FLIGHT/HOTEL/TRAIN/TICKET/CRUISE/VACATION
      */
-    private BizType bizType;
+    private BookingType bizType;
 
     /**
      * 预订平台: tuniu / rolling-go-hotel / flight-manager 等

@@ -1,12 +1,14 @@
 package com.fons.cloud.ai.trip.common.response;
 
+import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
+
 /**
  * 差旅审批提交结果，返回差旅单、审批流程及出行信息。
  * 幂等重复提交时，返回已有差旅单及审批记录的当前状态。
  *
  * @param orderId 差旅申请单ID
  * @param processInstanceId 审批流程实例ID，对应关联审批记录的主键
- * @param orderStatus 差旅申请单状态编码，取值参见 {@link com.fons.cloud.ai.trip.common.constants.OrderStatus}
+ * @param orderStatus 差旅申请单状态编码，取值参见 {@link TravelOrderStatus}
  * @param approvalStatus 审批状态编码，取值参见 {@link com.fons.cloud.ai.trip.common.constants.ApprovalStatus}
  * @param submitTime 审批提交日期，当前取审批记录创建日期，格式为 {@code yyyy-MM-dd}，不包含时分秒
  * @param destination 目的地城市

@@ -3,12 +3,11 @@ package com.fons.cloud.ai.trip.domain.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.fons.cloud.ai.trip.common.constants.OrderStatus;
+import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
 import com.fons.cloud.ai.trip.common.request.TravelOrderCreateRequest;
 import com.fons.cloud.ai.trip.infrastructure.util.IdGenerator;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
 import lombok.*;
-import org.aspectj.apache.bcel.generic.RET;
 
 import java.util.Date;
 
@@ -65,7 +64,7 @@ public class TravelOrder extends BaseEntity {
     /**
      * 状态: DRAFT/SUBMITTED/APPROVED/REJECTED/COMPLETED/CANCELLED
      */
-    private OrderStatus status;
+    private TravelOrderStatus status;
 
     /**
      * 关联审批单ID
@@ -86,18 +85,17 @@ public class TravelOrder extends BaseEntity {
                 .departureDate(request.getDepartureDate())
                 .returnDate(request.getReturnDate())
                 .purpose(request.getPurpose())
-                .status(OrderStatus.DRAFT)
+                .status(TravelOrderStatus.DRAFT)
                 .build();
     }
 
-
     public void submitted(String processInstanceId) {
         setApprovalId(processInstanceId);
-        setStatus(OrderStatus.SUBMITTED);
+        setStatus(TravelOrderStatus.SUBMITTED);
     }
 
     public void cancel() {
-        setStatus(OrderStatus.CANCELLED);
+        setStatus(TravelOrderStatus.CANCELLED);
         setUpdated(new Date());
     }
 }

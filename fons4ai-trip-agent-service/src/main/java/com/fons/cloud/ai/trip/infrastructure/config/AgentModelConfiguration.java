@@ -1,6 +1,7 @@
 package com.fons.cloud.ai.trip.infrastructure.config;
 
 import com.fons.cloud.ai.trip.common.constants.ModelType;
+import com.fons.cloud.ai.trip.infrastructure.config.properties.ModelConfigProperties;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;

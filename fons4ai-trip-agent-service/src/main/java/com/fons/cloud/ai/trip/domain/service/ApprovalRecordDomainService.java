@@ -15,4 +15,19 @@ public interface ApprovalRecordDomainService extends IService<ApprovalRecord> {
      * @return
      */
     ApprovalRecord submit(TravelOrder order);
+
+    /**
+     * 根据id和用户id查找
+     * @param id     主键
+     * @param userId 用户id
+     * @return
+     */
+    ApprovalRecord findByIdAndUserId(String id, String userId);
+
+    /**
+     * 根据用户id查询最后的审批记录
+     * @param userId 用户id
+     * @return
+     */
+    ApprovalRecord findLatestByUserId(String userId);
 }
