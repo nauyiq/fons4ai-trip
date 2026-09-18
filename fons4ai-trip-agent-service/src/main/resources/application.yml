@@ -57,6 +57,8 @@ sys:
         service-name: ${spring.application.name}
 
 trip:
+  destination-news:
+    api-key: ${NEWSDATA_API_KEY:}
   api-key:
     encrypt-secret: ${TRIP_API_KEY_ENCRYPT_SECRET:}
   model:
