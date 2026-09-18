@@ -2,15 +2,15 @@ package com.fons.cloud.ai.trip.agent.mcp;
 
 import com.fons.cloud.ai.trip.infrastructure.config.properties.TripMcpConfigProperties;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.Resource;
 
 /**
  * @author hongqy
  */
-@RequiredArgsConstructor
 public abstract class BaseMcp {
 
-    protected final TripMcpConfigProperties properties;
+    @Resource
+    protected TripMcpConfigProperties properties;
 
     /**
      * 获取MCP客户端

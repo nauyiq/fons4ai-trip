@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.application;
+package com.fons.cloud.ai.trip.application.business;
 
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.StrUtil;

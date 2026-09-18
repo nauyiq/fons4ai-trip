@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.application;
+package com.fons.cloud.ai.trip.application.business;
 
 import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateUtil;
@@ -26,7 +26,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.jetbrains.annotations.NotNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -35,14 +34,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 差旅订单应用服务
+ * 差旅业务 应用服务
  *
  * @author hongqy
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class TravelOrderApplicationService {
+public class TravelBusinessApplicationService {
     private final TransactionTemplate transactionTemplate;
     private final TravelOrderDomainService travelOrderDomainService;
     private final ApprovalRecordDomainService approvalRecordDomainService;

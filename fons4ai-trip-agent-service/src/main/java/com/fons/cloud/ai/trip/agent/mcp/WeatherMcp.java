@@ -18,9 +18,6 @@ import java.time.Duration;
 @Slf4j
 @Component
 public class WeatherMcp extends BaseMcp {
-    public WeatherMcp(TripMcpConfigProperties properties) {
-        super(properties);
-    }
 
     private volatile McpClientWrapper wrapper = null;
 

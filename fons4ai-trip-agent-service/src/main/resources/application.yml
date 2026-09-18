@@ -57,10 +57,12 @@ sys:
         service-name: ${spring.application.name}
 
 trip:
+  mcp:
+    tuniu:
+      # 企业统一配置的搜索服务凭据，不要求员工提供个人Key。
+      api-key: ${TUNIU_API_KEY:}
   destination-news:
     api-key: ${NEWSDATA_API_KEY:}
-  api-key:
-    encrypt-secret: ${TRIP_API_KEY_ENCRYPT_SECRET:}
   model:
     configs:
      strong-model:
@@ -82,14 +84,3 @@ trip:
   agent:
     time-context:
       zone-id: Asia/Shanghai
-  business:
-    providers:
-      flight-manager:
-        name: flight-manager
-        guide-url: https://h5.133.cn/webapp/pages/mcpApiKey
-        key-prefix: sk_
-      tu-niu:
-        name: tuniu-cli
-        guide-url: https://open.tuniu.com/mcp/login
-        key-prefix: sk-
-

@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.application;
+package com.fons.cloud.ai.trip.application.booking;
 
 import com.fons.cloud.ai.trip.common.constants.BookingStatus;
 import com.fons.cloud.ai.trip.common.dto.BookingSummary;

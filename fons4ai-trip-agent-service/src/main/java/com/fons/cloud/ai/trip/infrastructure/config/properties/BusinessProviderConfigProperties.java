@@ -15,12 +15,14 @@ import java.util.Map;
 /**
  * 第三方服务提供者信息
  *
+ * @deprecated 企业统一管理供应商凭据，个人API Key能力仅保留兼容，新业务不再使用。
  * @author hongqy
  */
 @Getter
 @Setter
 @Component
 @ConfigurationProperties(prefix = "trip.business")
+@Deprecated
 public class BusinessProviderConfigProperties {
 
     /**

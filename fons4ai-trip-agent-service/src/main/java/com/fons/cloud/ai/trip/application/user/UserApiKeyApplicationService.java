@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.application;
+package com.fons.cloud.ai.trip.application.user;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.BusinessProvider;
@@ -19,10 +19,12 @@ import java.nio.charset.StandardCharsets;
 /**
  * 用户第三方凭据应用服务，不使用会话或 Redis 缓存。
  *
+ * @deprecated 企业统一管理供应商凭据，个人API Key能力仅保留兼容，新业务不再使用。
  * @author hongqy
  */
 @Service
 @RequiredArgsConstructor
+@Deprecated
 public class UserApiKeyApplicationService {
 
     /** 密文字段长度为512，限制明文UTF-8字节数以容纳GCM的IV、认证标签和Base64开销。 */

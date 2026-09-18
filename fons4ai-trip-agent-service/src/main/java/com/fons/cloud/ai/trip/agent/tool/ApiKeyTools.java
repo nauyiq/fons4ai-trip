@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.agent.tool;
 
-import com.fons.cloud.ai.trip.application.UserApiKeyApplicationService;
+import com.fons.cloud.ai.trip.application.user.UserApiKeyApplicationService;
 import com.fons.cloud.ai.trip.common.constants.BusinessProvider;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.response.CheckApiKeyResult;
@@ -22,11 +22,13 @@ import java.util.List;
 /**
  * 第三方 API Key 统一管理工具集。
  *
+ * @deprecated 企业统一管理供应商凭据，个人API Key能力仅保留兼容，新业务不再使用。
  * @author hongqy
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@Deprecated
 public class ApiKeyTools implements BaseTool {
     public static final List<String> TOOLS = List.of("check_tuniu_api_key", "save_tuniu_api_key");
 

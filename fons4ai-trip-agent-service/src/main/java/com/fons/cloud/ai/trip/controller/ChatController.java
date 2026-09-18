@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.controller;
 
-import com.fons.cloud.ai.trip.application.ChatApplicationService;
+import com.fons.cloud.ai.trip.application.conversation.ChatApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.request.ChatRequest;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;

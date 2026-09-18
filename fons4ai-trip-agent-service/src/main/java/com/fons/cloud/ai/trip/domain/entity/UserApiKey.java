@@ -9,6 +9,7 @@ import lombok.*;
 /**
  * 用户第三方 API Key（加密存储）
  *
+ * @deprecated 企业统一管理供应商凭据，个人API Key能力仅保留兼容，新业务不再使用。
  * @author hongqy
  */
 @Getter
@@ -17,6 +18,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName("user_api_key")
+@Deprecated
 public class UserApiKey extends BaseEntity {
 
     /**

@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.application;
+package com.fons.cloud.ai.trip.application.user;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;

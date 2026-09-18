@@ -7,9 +7,11 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
+ * @deprecated 企业统一管理供应商凭据，个人API Key能力仅保留兼容，新业务不再使用。
  * @author hongqy
  */
 @Mapper
+@Deprecated
 public interface UserApiKeyMapper extends BaseMapper<UserApiKey> {
 
     /** 按用户及提供商唯一键原子写入或覆盖密文，避免先删后插丢失凭据。 */

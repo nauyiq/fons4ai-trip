@@ -16,6 +16,8 @@ public enum BusinessAgent {
 
     ITINERARY_MANAGE_AGENT("itineraryManageAgent", "行程单全生命周期管理：收集信息、提交审批、查询差旅单/审批状态、取消申请、修改申请。参数：message（任务描述），可选 session_id（继续会话）。"),
 
+    ITINERARY_PLAN_AGENT("ItineraryPlanAgent","智能行程规划专家, 负责方案生成、比价分析、审核修复闭环"),
+
     ;
 
     /**

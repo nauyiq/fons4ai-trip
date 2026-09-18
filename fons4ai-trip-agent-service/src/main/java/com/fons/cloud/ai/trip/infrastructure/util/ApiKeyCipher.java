@@ -20,9 +20,11 @@ import java.util.Base64;
  * 无默认加密密钥；保存或读取已配置凭据前必须设置 trip.api-key.encrypt-secret。
  * 此密文格式与 Gogo 的 AES-ECB 格式不同，不直接兼容旧密文导入。
  *
+ * @deprecated 企业统一管理供应商凭据，个人API Key能力仅保留兼容，新业务不再使用。
  * @author hongqy
  */
 @Component
+@Deprecated
 public class ApiKeyCipher {
 
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";

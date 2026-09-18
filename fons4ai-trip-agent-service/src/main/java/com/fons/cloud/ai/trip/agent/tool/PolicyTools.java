@@ -1,7 +1,6 @@
 package com.fons.cloud.ai.trip.agent.tool;
 
-import com.fons.cloud.ai.trip.application.TravelPolicyApplicationService;
-import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
+import com.fons.cloud.ai.trip.application.business.TravelPolicyApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import com.fons.cloud.ai.trip.common.response.PolicyCheckResult;

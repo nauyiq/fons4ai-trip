@@ -1,8 +1,7 @@
-package com.fons.cloud.ai.trip.application;
+package com.fons.cloud.ai.trip.application.conversation;
 
 import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.lang.Assert;
-import com.fons.cloud.ai.agent.api.AgentRegistry;
 import com.fons.cloud.ai.agent.model.request.AgentInputContent;
 import com.fons.cloud.ai.agent.model.request.AgentInputContentType;
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
