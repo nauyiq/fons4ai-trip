@@ -33,7 +33,7 @@ import java.util.List;
  */
 @Slf4j
 @Component
-public class TravelOrderReadTools {
+public class TravelOrderReadTools implements BaseTool {
     public static final List<String> TOOLS = List.of("query_travel_order", "query_travel_order_by_order_id", "query_travel_orders", "query_approval_status", "check_travel_time_validity");
 
     private final TravelOrderDomainService travelOrderDomainService;
@@ -252,5 +252,10 @@ public class TravelOrderReadTools {
             return "开始日期不能晚于结束日期";
         }
         return null;
+    }
+
+    @Override
+    public List<String> tools() {
+        return TOOLS;
     }
 }

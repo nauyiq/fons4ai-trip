@@ -25,7 +25,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class UserInfoReadTools {
+public class UserInfoReadTools implements BaseTool {
     public static final List<String> TOOLS = List.of("query_user_contact_info", "query_user_base_location");
 
     private final UserProfileDomainService userProfileDomainService;
@@ -141,5 +141,10 @@ public class UserInfoReadTools {
         return new QueryUserContactInfoResult(userId, namePinyin, lastName, firstName, email, chineseName,
                 idType, idTypeLabel, idNumber, phone, gender, hotelComplete, flightComplete,
                 hotelComplete && flightComplete, List.copyOf(missingFields));
+    }
+
+    @Override
+    public List<String> tools() {
+        return TOOLS;
     }
 }

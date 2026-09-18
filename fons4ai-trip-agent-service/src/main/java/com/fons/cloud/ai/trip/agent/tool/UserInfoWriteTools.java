@@ -33,7 +33,7 @@ import java.util.Locale;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class UserInfoWriteTools {
+public class UserInfoWriteTools implements BaseTool {
     public static final List<String> TOOLS = List.of("update_user_contact_info", "update_user_base_location");
 
     private final UserProfileDomainService userProfileDomainService;
@@ -213,4 +213,10 @@ public class UserInfoWriteTools {
             default -> null;
         };
     }
+
+    @Override
+    public List<String> tools() {
+        return TOOLS;
+    }
+
 }

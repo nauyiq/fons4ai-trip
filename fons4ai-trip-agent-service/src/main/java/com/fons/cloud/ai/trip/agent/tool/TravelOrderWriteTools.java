@@ -41,7 +41,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class TravelOrderWriteTools {
+public class TravelOrderWriteTools implements BaseTool {
     public static final List<String> TOOLS = List.of("submit_travel_approval", "cancel_travel_order", "modify_travel_order");
 
     private final TravelOrderApplicationService travelOrderApplicationService;
@@ -361,5 +361,8 @@ public class TravelOrderWriteTools {
         return sb.toString();
     }
 
-
+    @Override
+    public List<String> tools() {
+        return TOOLS;
+    }
 }
