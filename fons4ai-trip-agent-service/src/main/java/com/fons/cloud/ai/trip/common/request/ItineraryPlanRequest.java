@@ -68,6 +68,16 @@ public class ItineraryPlanRequest extends BaseRequest {
     private LocalDate returnDate;
 
     /**
+     * 单间住宿的成人数，null沿用酒店搜索契约的2人；用于准确读取同人数报价。
+     */
+    private Integer adultCount;
+
+    /**
+     * 单间住宿的儿童年龄，null或空列表表示没有儿童；候选读取按排序后的年龄组合匹配。
+     */
+    private List<Integer> childAges;
+
+    /**
      * 用户明确表达或长期记忆召回的真实偏好，无偏好时为空字符串；计算引擎不自行解读。
      */
     private String preferences;

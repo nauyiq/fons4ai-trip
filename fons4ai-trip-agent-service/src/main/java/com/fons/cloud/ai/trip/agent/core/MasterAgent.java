@@ -11,7 +11,7 @@ import com.fons.cloud.ai.trip.agent.model.BusinessAgent;
 import com.fons.cloud.ai.trip.agent.model.CompressConfig;
 import com.fons.cloud.ai.trip.agent.model.MasterAgentProperties;
 import com.fons.cloud.ai.trip.agent.tool.*;
-import com.fons.cloud.ai.trip.infrastructure.client.ModelFacade;
+import com.fons.cloud.ai.trip.infrastructure.util.ModelFacade;
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
@@ -61,6 +61,7 @@ public class MasterAgent {
     private final UserInfoReadTools userInfoReadTools;
     private final UserInfoWriteTools userInfoWriteTools;
     private final PolicyTools policyTools;
+    private final ItinerarySearchTools itinerarySearchTools;
 
     // == 封装调用外部服务的工具清单 ==
     private final DestinationLiveTools destinationLiveTools;
@@ -102,6 +103,7 @@ public class MasterAgent {
         toolkit.registerTool(travelOrderReadTools);
         toolkit.registerTool(destinationLiveTools);
         toolkit.registerTool(policyTools);
+        toolkit.registerTool(itinerarySearchTools);
 
         // 子AGENT构建
         HarnessAgent itineraryPlanAgent = commonBuilder()

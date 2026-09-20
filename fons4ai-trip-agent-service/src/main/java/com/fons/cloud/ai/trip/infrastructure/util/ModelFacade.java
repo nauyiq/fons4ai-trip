@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.infrastructure.client;
+package com.fons.cloud.ai.trip.infrastructure.util;
 
 import cn.hutool.core.lang.Assert;
 import cn.hutool.extra.spring.SpringUtil;

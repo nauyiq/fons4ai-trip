@@ -5,7 +5,7 @@ import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson2.JSON;
-import com.fons.cloud.ai.trip.application.booking.BookingApplicationService;
+import com.fons.cloud.ai.trip.application.business.BookingApplicationService;
 import com.fons.cloud.ai.trip.application.business.TravelBusinessApplicationService;
 import com.fons.cloud.ai.trip.common.constants.BookingType;
 import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
