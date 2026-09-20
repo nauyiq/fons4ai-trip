@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.infrastructure.client.model;
+package com.fons.cloud.ai.trip.infrastructure.client.model.wttr;
 
 import com.alibaba.fastjson2.annotation.JSONField;
 

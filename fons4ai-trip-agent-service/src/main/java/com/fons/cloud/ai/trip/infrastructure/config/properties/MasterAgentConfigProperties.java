@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.agent.model;
+package com.fons.cloud.ai.trip.infrastructure.config.properties;
 
 import com.fons.cloud.ai.trip.common.constants.ModelType;
 import lombok.Getter;
@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Getter
 @Setter
 @ConfigurationProperties(prefix = "trip.agent.master")
-public class MasterAgentProperties {
+public class MasterAgentConfigProperties {
 
     /**
      * 工作空间

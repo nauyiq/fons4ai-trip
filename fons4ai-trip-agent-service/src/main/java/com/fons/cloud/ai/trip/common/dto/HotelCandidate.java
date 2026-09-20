@@ -20,9 +20,14 @@ import java.time.LocalDate;
  * @param reviewScore           供应商点评评分，不做跨供应商归一化；未知为null
  * @param reviewSummary         点评摘要原文，未知为null
  * @param imageUrl              酒店图片地址，未知为null
+ * @param roomTypeId            供应商房型标识，酒店列表候选未知为null
  * @param roomType              房型，未知为null
+ * @param ratePlanName          报价方案名称，酒店列表候选未知为null
+ * @param bedType               床型原文，未知为null
+ * @param maxOccupancy          房型最大入住人数，未知为null
  * @param roomAreaDescription   房间面积原文，未知为null
  * @param roomWindowDescription 窗户说明原文，未知为null
+ * @param floorDescription      楼层说明原文，未知为null
  * @param checkInDate           实际搜索的入住日期，必填，按酒店所在地日历解释
  * @param checkOutDate          实际搜索的离店日期，必填且晚于入住日期
  * @param nights                实际入住晚数，必须与日期一致且大于0
@@ -35,14 +40,18 @@ import java.time.LocalDate;
  * @param breakfastIncluded     是否含早餐，未知为null；不能仅以原文包含早餐二字判断
  * @param mealDescription       餐食说明原文，如无早餐，未知为null
  * @param cancelPolicy          取消政策原文，未知为null
+ * @param remainingRooms        当前报价剩余房量，未知为null，0表示已无库存
  * @author hongqy
  */
 public record HotelCandidate(String candidateId, CandidateSource source, String name, String city,
                              String address, String businessArea, String brand, Integer starRating,
                              String classification, BigDecimal reviewScore, String reviewSummary,
-                             String imageUrl, String roomType, String roomAreaDescription,
-                             String roomWindowDescription, LocalDate checkInDate, LocalDate checkOutDate,
+                             String imageUrl, String roomTypeId, String roomType, String ratePlanName,
+                             String bedType, Integer maxOccupancy, String roomAreaDescription,
+                             String roomWindowDescription, String floorDescription,
+                             LocalDate checkInDate, LocalDate checkOutDate,
                              int nights, int adultCount, int childCount, CandidatePrice price,
                              String distanceReference, BigDecimal distanceKm, String distanceDescription,
-                             Boolean breakfastIncluded, String mealDescription, String cancelPolicy) {
+                             Boolean breakfastIncluded, String mealDescription, String cancelPolicy,
+                             Integer remainingRooms) {
 }

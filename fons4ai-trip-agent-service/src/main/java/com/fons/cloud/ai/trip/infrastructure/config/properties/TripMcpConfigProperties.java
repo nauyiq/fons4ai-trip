@@ -64,6 +64,7 @@ public class TripMcpConfigProperties {
         private String flightSearchTool = "searchLowestPriceFlight";
         private String trainSearchTool = "searchLowestPriceTrain";
         private String hotelSearchTool = "tuniuHotelSearch";
+        private String hotelDetailTool = "tuniuHotelDetail";
 
         /**
          * HTTP连接建立超时（秒）。

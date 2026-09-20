@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.infrastructure.client;
+package com.fons.cloud.ai.trip.infrastructure.client.model.tuniu;
 
 import cn.hutool.core.lang.Assert;
 import com.alibaba.fastjson2.JSON;
@@ -13,12 +13,9 @@ import com.fons.cloud.ai.trip.common.dto.SearchPagination;
 import com.fons.cloud.ai.trip.common.dto.TransportCandidate;
 import com.fons.cloud.ai.trip.common.request.FlightSearchRequest;
 import com.fons.cloud.ai.trip.common.request.HotelSearchRequest;
+import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuFlightSearchResponse;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuHotelSearchResponse;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuTrainSearchResponse;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuTrainSeat;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import org.apache.commons.lang3.StringUtils;
 
@@ -34,6 +31,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -43,7 +41,7 @@ import java.util.UUID;
  *
  * @author hongqy
  */
-final class TuniuSearchConverter {
+public final class TuniuSearchConverter {
 
     /** 当前接入的是国内搜索端点，其当地时间和金额分别按中国时区及人民币解释。 */
     private static final ZoneId DOMESTIC_ZONE = ZoneId.of("Asia/Shanghai");
@@ -53,7 +51,7 @@ final class TuniuSearchConverter {
             DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss").withResolverStyle(java.time.format.ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm").withResolverStyle(java.time.format.ResolverStyle.STRICT));
 
-    ItinerarySearchResult<TransportCandidate> convertFlights(TuniuFlightSearchResponse response,
+    public ItinerarySearchResult<TransportCandidate> convertFlights(TuniuFlightSearchResponse response,
                                                              FlightSearchRequest request, SearchPagination pagination) {
         List<TransportCandidate> candidates = new ArrayList<>();
         Set<String> warnings = new LinkedHashSet<>();
@@ -90,7 +88,7 @@ final class TuniuSearchConverter {
         return result(candidates, pagination, response.data().size(), discarded, warnings);
     }
 
-    ItinerarySearchResult<TransportCandidate> convertTrains(TuniuTrainSearchResponse response,
+    public ItinerarySearchResult<TransportCandidate> convertTrains(TuniuTrainSearchResponse response,
                                                             TrainSearchRequest request, SearchPagination pagination) {
         List<TransportCandidate> candidates = new ArrayList<>();
         Set<String> warnings = new LinkedHashSet<>();
@@ -128,7 +126,7 @@ final class TuniuSearchConverter {
         return result(candidates, pagination, response.data().size(), discarded, warnings);
     }
 
-    ItinerarySearchResult<HotelCandidate> convertHotels(TuniuHotelSearchResponse response,
+    public ItinerarySearchResult<HotelCandidate> convertHotels(TuniuHotelSearchResponse response,
                                                         HotelSearchRequest request, int adultCount, SearchPagination pagination) {
         List<HotelCandidate> candidates = new ArrayList<>();
         Set<String> warnings = new LinkedHashSet<>();
@@ -155,12 +153,99 @@ final class TuniuSearchConverter {
                     StringUtils.defaultIfBlank(text(hotel.cityName()), text(request.city())), text(hotel.address()),
                     text(hotel.business()), text(hotel.brandName()), star(hotel.starName()), text(hotel.starName()),
                     nonNegative(hotel.commentScore(), warnings), text(hotel.commentDigest()), text(hotel.firstPic()),
-                    text(hotel.roomName()), text(hotel.roomArea()), text(hotel.roomWindow()),
+                    null, text(hotel.roomName()), null, null, null,
+                    text(hotel.roomArea()), text(hotel.roomWindow()), null,
                     request.checkInDate(), request.checkOutDate(), nights, adultCount, childAges.size(),
                     new CandidatePrice(amount, DOMESTIC_CURRENCY, SearchPriceBasis.UNKNOWN, null, null, true),
-                    reference, null, text(hotel.distance()), breakfast(hotel.meal()), text(hotel.meal()), text(hotel.refund())));
+                    reference, null, text(hotel.distance()), breakfast(hotel.meal()), text(hotel.meal()),
+                    text(hotel.refund()), null));
         }
         return result(candidates, pagination, response.hotels().size(), discarded, warnings);
+    }
+
+    /**
+     * 将酒店详情中的“房型 × 报价方案”拆成可计算候选。
+     * 详情接口在一间房条件下返回具体报价，按单间每晚口径接入；列表最低价仍保持起价候选。
+     * 短期preBookParam不写入候选，实际预订前必须重新查询详情并验价。
+     */
+    public ItinerarySearchResult<HotelCandidate> convertHotelRooms(TuniuHotelDetailResponse response,
+                                                                    HotelRoomSearchRequest request,
+                                                                    int adultCount,
+                                                                    SearchPagination pagination) {
+        List<HotelCandidate> candidates = new ArrayList<>();
+        Set<String> warnings = new LinkedHashSet<>();
+        int discarded = 0;
+        int originalCount = 0;
+        int nights = Math.toIntExact(ChronoUnit.DAYS.between(request.checkInDate(), request.checkOutDate()));
+        List<Integer> childAges = request.childAges() == null
+                ? List.of() : request.childAges().stream().sorted().toList();
+        int guestCount = adultCount + childAges.size();
+        List<TuniuHotelDetailResponse.RoomType> roomTypes = response.roomTypes() == null
+                ? List.of() : response.roomTypes();
+
+        for (TuniuHotelDetailResponse.RoomType room : roomTypes) {
+            List<TuniuHotelDetailResponse.RatePlan> ratePlans = room == null || room.ratePlans() == null
+                    ? List.of() : room.ratePlans();
+            originalCount += ratePlans.size();
+            if (room == null || StringUtils.isAnyBlank(room.roomTypeId(), room.roomTypeName())) {
+                discarded += Math.max(1, ratePlans.size());
+                continue;
+            }
+            if (room.maxOccupancy() != null && room.maxOccupancy() > 0 && guestCount > room.maxOccupancy()) {
+                warnings.add("部分房型最大入住人数不足，规划时将过滤对应报价");
+            }
+            if (ratePlans.isEmpty()) {
+                warnings.add("部分房型当前未返回报价方案，不能参与规划");
+                continue;
+            }
+            for (TuniuHotelDetailResponse.RatePlan ratePlan : ratePlans) {
+                if (ratePlan == null || StringUtils.isBlank(ratePlan.vendorRatePlanId())) {
+                    discarded++;
+                    continue;
+                }
+                BigDecimal price = money(ratePlan.rmbPrices(), warnings);
+                if (price == null || price.signum() <= 0) {
+                    discarded++;
+                    warnings.add("部分房型报价金额缺失或无效，已舍弃对应报价");
+                    continue;
+                }
+                Integer remainingRooms = ratePlan.count();
+                if (remainingRooms != null && remainingRooms < 0) {
+                    remainingRooms = null;
+                    warnings.add("部分房型库存数量无效，按未知库存处理");
+                } else if (remainingRooms != null && remainingRooms == 0) {
+                    warnings.add("部分房型报价当前已无库存，规划时将过滤对应候选");
+                }
+
+                String roomTypeId = text(room.roomTypeId());
+                String offerId = text(ratePlan.vendorRatePlanId());
+                String id = identity(BookingType.HOTEL, response.hotelId(), request.checkInDate(),
+                        request.checkOutDate(), adultCount, childAges, roomTypeId, offerId);
+                String imageUrl = room.images() == null ? null : room.images().stream()
+                        .map(this::text).filter(Objects::nonNull).findFirst().orElse(null);
+                if (imageUrl == null) {
+                    imageUrl = text(response.firstPic());
+                }
+                BigDecimal reviewScore = response.commentScore() != null
+                        ? nonNegative(response.commentScore(), warnings)
+                        : response.reviews() == null ? null : nonNegative(response.reviews().score(), warnings);
+                String cancelPolicy = StringUtils.defaultIfBlank(text(ratePlan.cancelDesc()),
+                        response.policies() == null ? null : text(response.policies().cancelPolicy()));
+                candidates.add(new HotelCandidate(id, source(response.hotelId().toString(), offerId),
+                        text(response.hotelName()), StringUtils.defaultIfBlank(text(response.cityName()), text(request.city())),
+                        text(response.address()), text(response.business()), text(response.brandName()),
+                        star(response.starName()), text(response.starName()), reviewScore,
+                        text(response.commentDigest()), imageUrl, roomTypeId, text(room.roomTypeName()),
+                        text(ratePlan.ratePlanName()), text(room.bedType()), room.maxOccupancy(),
+                        roomArea(room.roomSize()), null, text(room.floor()), request.checkInDate(),
+                        request.checkOutDate(), nights, adultCount, childAges.size(),
+                        new CandidatePrice(price, DOMESTIC_CURRENCY, SearchPriceBasis.PER_ROOM_PER_NIGHT,
+                                null, null, false),
+                        null, null, null, breakfast(ratePlan.mealText()), text(ratePlan.mealText()),
+                        cancelPolicy, remainingRooms));
+            }
+        }
+        return result(candidates, pagination, originalCount, discarded, warnings);
     }
 
     private TransportCandidate trainCandidate(TuniuTrainSearchResponse.Train train, TrainSearchRequest request,
@@ -284,6 +369,15 @@ final class TuniuSearchConverter {
 
     private CandidateSource source(String itemId) {
         return new CandidateSource(ItinerarySearchProvider.TU_NIU, itemId, null);
+    }
+
+    private CandidateSource source(String itemId, String offerId) {
+        return new CandidateSource(ItinerarySearchProvider.TU_NIU, itemId, offerId);
+    }
+
+    private String roomArea(BigDecimal roomSize) {
+        return roomSize == null || roomSize.signum() <= 0
+                ? null : roomSize.stripTrailingZeros().toPlainString() + "㎡";
     }
 
     /** 身份由供应商、行程和报价选项确定，不包含价格、库存、筛选条件及页码。 */

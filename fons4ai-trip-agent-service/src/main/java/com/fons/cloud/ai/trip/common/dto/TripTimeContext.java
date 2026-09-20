@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.agent.model;
+package com.fons.cloud.ai.trip.common.dto;
 
 import java.time.LocalDate;
 import java.time.ZoneId;

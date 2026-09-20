@@ -18,12 +18,18 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "trip.weather")
 public class WeatherClientProperties {
 
-    /** wttr.in服务地址，城市作为URI模板参数编码，不接受模型提供服务地址。 */
+    /**
+     * wttr.in服务地址，城市作为URI模板参数编码，不接受模型提供服务地址。
+     */
     private String baseUrl = "https://wttr.in";
 
-    /** 建立HTTP连接的最长等待时间。 */
-    private Duration connectTimeout = Duration.ofSeconds(3);
+    /**
+     * 建立HTTP连接的最长等待时间。
+     */
+    private Duration connectTimeout = Duration.ofSeconds(15);
 
-    /** 单次HTTP请求的读取等待时间，不包含连接建立阶段。 */
-    private Duration readTimeout = Duration.ofSeconds(8);
+    /**
+     * 单次HTTP请求的读取等待时间，不包含连接建立阶段。
+     */
+    private Duration readTimeout = Duration.ofSeconds(60);
 }

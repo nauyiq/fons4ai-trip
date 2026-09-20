@@ -7,9 +7,8 @@ import com.fons.cloud.ai.agent.core.AgentTaskManager;
 import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceMiddleware;
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.mcp.WeatherMcp;
-import com.fons.cloud.ai.trip.agent.model.BusinessAgent;
-import com.fons.cloud.ai.trip.agent.model.CompressConfig;
-import com.fons.cloud.ai.trip.agent.model.MasterAgentProperties;
+import com.fons.cloud.ai.trip.infrastructure.config.properties.CompressConfig;
+import com.fons.cloud.ai.trip.infrastructure.config.properties.MasterAgentConfigProperties;
 import com.fons.cloud.ai.trip.agent.tool.*;
 import com.fons.cloud.ai.trip.infrastructure.util.ModelFacade;
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddleware;
@@ -39,9 +38,9 @@ import java.time.Duration;
 @Slf4j
 @Configuration
 @RequiredArgsConstructor
-@EnableConfigurationProperties(MasterAgentProperties.class)
+@EnableConfigurationProperties(MasterAgentConfigProperties.class)
 public class MasterAgent {
-    private final MasterAgentProperties properties;
+    private final MasterAgentConfigProperties properties;
     private final DistributedStore distributedStore;
     private final AgentTaskManager agentTaskManager;
 
@@ -53,7 +52,7 @@ public class MasterAgent {
     // 持久化当前会话顶层Agent身份的中间件
     private final ActiveAgentPersistenceMiddleware activeAgentPersistenceMiddleware;
 
-    // == 业务工具清单 ==
+    // == 工具清单 ==
     private final BookingReadTools bookingReadTools;
     private final TravelOrderReadTools travelOrderReadTools;
     private final TravelOrderWriteTools travelOrderWriteTools;
@@ -62,8 +61,7 @@ public class MasterAgent {
     private final UserInfoWriteTools userInfoWriteTools;
     private final PolicyTools policyTools;
     private final ItinerarySearchTools itinerarySearchTools;
-
-    // == 封装调用外部服务的工具清单 ==
+    private final ItineraryPlannerTools itineraryPlannerTools;
     private final DestinationLiveTools destinationLiveTools;
 
     // == MCP清单 ==
@@ -82,8 +80,8 @@ public class MasterAgent {
         toolkit.registerTool(userInfoWriteTools);
         // 子AGENT构建
         HarnessAgent itineraryManageAgent = commonBuilder()
-                .name(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName())
-                .description(BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription())
+                .name(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName())
+                .description(TripAgent.ITINERARY_MANAGE_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-manage-agent-system.md"))
                 .toolkit(toolkit)
                 .disableSubagents()
@@ -104,11 +102,12 @@ public class MasterAgent {
         toolkit.registerTool(destinationLiveTools);
         toolkit.registerTool(policyTools);
         toolkit.registerTool(itinerarySearchTools);
+        toolkit.registerTool(itineraryPlannerTools);
 
         // 子AGENT构建
         HarnessAgent itineraryPlanAgent = commonBuilder()
-                .name(BusinessAgent.ITINERARY_PLAN_AGENT.getAgentName())
-                .description(BusinessAgent.ITINERARY_PLAN_AGENT.getDescription())
+                .name(TripAgent.ITINERARY_PLAN_AGENT.getAgentName())
+                .description(TripAgent.ITINERARY_PLAN_AGENT.getDescription())
                 .enableTaskList(true)
                 .toolkit(toolkit)
                 .disableSubagents()
@@ -121,21 +120,21 @@ public class MasterAgent {
     public Agent masterAgent(HarnessAgent itineraryManageAgent,
                              HarnessAgent itineraryPlanAgent) {
         HarnessAgent.Builder masterBuilder = commonBuilder()
-                .name(BusinessAgent.MASTER_AGENT.getAgentName())
+                .name(TripAgent.MASTER_AGENT.getAgentName())
                 .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
                 .middleware(activeAgentPersistenceMiddleware);
 
         // 配置行程管理子Agent
-        masterBuilder.subagentFactory(BusinessAgent.ITINERARY_MANAGE_AGENT.getAgentName(), BusinessAgent.ITINERARY_MANAGE_AGENT.getDescription(),
+        masterBuilder.subagentFactory(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName(), TripAgent.ITINERARY_MANAGE_AGENT.getDescription(),
                 name -> itineraryManageAgent);
 
         // 配置行程规划子Agent
-        masterBuilder.subagentFactory(BusinessAgent.ITINERARY_PLAN_AGENT.getAgentName(), BusinessAgent.ITINERARY_PLAN_AGENT.getDescription(),
+        masterBuilder.subagentFactory(TripAgent.ITINERARY_PLAN_AGENT.getAgentName(), TripAgent.ITINERARY_PLAN_AGENT.getDescription(),
                 name -> itineraryPlanAgent);
 
         // 采用fons4ai契约的agent实例
         return AgentScopeHarnessAgent.builder()
-                .agentName(BusinessAgent.MASTER_AGENT.getAgentName())
+                .agentName(TripAgent.MASTER_AGENT.getAgentName())
                 .agentType(AgentType.HARNESS)
                 .agentTaskManager(agentTaskManager)
                 .delegateBuilder(masterBuilder)

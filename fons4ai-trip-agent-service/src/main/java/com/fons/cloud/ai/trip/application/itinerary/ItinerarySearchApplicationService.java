@@ -5,13 +5,11 @@ import com.fons.cloud.ai.trip.common.constants.BookingType;
 import com.fons.cloud.ai.trip.common.constants.ItinerarySearchProvider;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.HotelCandidate;
-import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateGroups;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateScope;
-import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot;
 import com.fons.cloud.ai.trip.common.dto.TransportCandidate;
 import com.fons.cloud.ai.trip.common.request.FlightSearchRequest;
 import com.fons.cloud.ai.trip.common.request.HotelSearchRequest;
-import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
+import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
 import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySearchClient;
@@ -130,27 +128,28 @@ public class ItinerarySearchApplicationService {
     }
 
     /**
-     * 供规划应用服务读取候选；身份从可信请求字段取得，不接收模型编造的候选数据。
-     * 当前单目的地方案按去程日至返程日读取酒店；完整性、库存及最新约束由计算入口另行校验。
+     * 查询指定酒店的具体房型报价，并保存到与酒店列表候选相同的住宿候选分组。
+     * 每个房型报价方案是独立候选，可覆盖同一ID的旧价格和库存；酒店列表起价候选仍保留用于展示。
      *
-     * @param request 往返规划请求，用户和会话必须由可信入口填入；路线、日期及入住人数用于精确匹配候选，
-     *                成人数为空时按2人处理，儿童年龄为空时表示没有儿童
-     * @return 一次批量读取取得的去程机票、去程火车、返程机票、返程火车和酒店快照；
-     *         空分组统一表示当前没有可用候选，不在本方法中打分或过滤
-     * @throws BusinessRuntimeException 请求、候选归属、路线、日期或入住条件无效时抛出
-     * @throws SystemIntervalException 候选存储访问或快照解析失败时抛出
+     * @param owner 从可信运行上下文取得的用户和根业务会话
+     * @param provider 服务端选择的搜索供应商
+     * @param request Trip酒店房型报价条件，酒店标识来自酒店列表候选的source.itemId
+     * @return 本次具体房型报价结果，不包含累计候选池
+     * @throws BusinessRuntimeException 搜索参数、入住条件或候选归属无效时抛出
+     * @throws SystemIntervalException 客户端未配置、响应协议异常或候选保存失败时抛出
      */
-    public ItineraryCandidateSnapshot loadCandidates(ItineraryPlanRequest request) {
-        Assert.notNull(request, () -> parameterError("行程规划请求不能为空"));
-        CandidateOwner owner = new CandidateOwner(request.getUserId(), request.getConversationId());
-        int adultCount = request.getAdultCount() == null ? DEFAULT_ADULT_COUNT : request.getAdultCount();
-        ItineraryCandidateGroups groups = new ItineraryCandidateGroups(
-                ItineraryCandidateScope.transport(owner, BookingType.FLIGHT, request.getOrigin(), request.getDestination(), request.getDepartureDate()),
-                ItineraryCandidateScope.transport(owner, BookingType.TRAIN, request.getOrigin(), request.getDestination(), request.getDepartureDate()),
-                ItineraryCandidateScope.transport(owner, BookingType.FLIGHT, request.getDestination(), request.getOrigin(), request.getReturnDate()),
-                ItineraryCandidateScope.transport(owner, BookingType.TRAIN, request.getDestination(), request.getOrigin(), request.getReturnDate()),
-                ItineraryCandidateScope.hotel(owner, request.getDestination(), request.getDepartureDate(), request.getReturnDate(), adultCount, request.getChildAges()));
-        return candidateRepository.loadSnapshot(groups);
+    public ItinerarySearchResult<HotelCandidate> searchHotelRooms(CandidateOwner owner,
+                                                                   ItinerarySearchProvider provider,
+                                                                   HotelRoomSearchRequest request) {
+        Assert.notNull(request, () -> parameterError("酒店房型报价搜索参数不能为空"));
+        int adultCount = request.adultCount() == null ? DEFAULT_ADULT_COUNT : request.adultCount();
+        ItineraryCandidateScope scope = ItineraryCandidateScope.hotel(owner, request.city(), request.checkInDate(),
+                request.checkOutDate(), adultCount, request.childAges());
+        ItinerarySearchClient client = client(provider);
+        ItinerarySearchResult<HotelCandidate> result = client.searchHotelRooms(request);
+        validateSearchResult(provider, result);
+        candidateRepository.saveHotelCandidates(scope, result.candidates());
+        return result;
     }
 
     /**

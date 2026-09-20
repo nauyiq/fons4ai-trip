@@ -15,17 +15,12 @@ import com.fons.cloud.ai.trip.common.dto.SearchTimeRange;
 import com.fons.cloud.ai.trip.common.dto.TransportCandidate;
 import com.fons.cloud.ai.trip.common.request.FlightSearchRequest;
 import com.fons.cloud.ai.trip.common.request.HotelSearchRequest;
+import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.SearchPageRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
 import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySearchClient;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuFlightSearchRequest;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuFlightSearchResponse;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuHotelSearchRequest;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuHotelSearchResponse;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuSearchPageRequest;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuTrainSearchRequest;
-import com.fons.cloud.ai.trip.infrastructure.client.model.TuniuTrainSearchResponse;
+import com.fons.cloud.ai.trip.infrastructure.client.model.tuniu.*;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.TripMcpConfigProperties;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.TripMcpConfigProperties.TuniuMcpConfig;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
@@ -39,7 +34,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -66,11 +60,13 @@ public class TuniuSearchClient implements ItinerarySearchClient {
     private static final int FIRST_PAGE = 1;
     private static final int MIN_NEXT_PAGE = 2;
     private static final int DEFAULT_ADULT_COUNT = 2;
+    private static final int DEFAULT_ROOM_COUNT = 1;
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final SearchService flightService;
     private final SearchService trainService;
     private final SearchService hotelService;
+    private final SearchService hotelDetailService;
     private final Duration connectTimeout;
     private final Duration requestTimeout;
     private final Duration initialTimeout;
@@ -88,6 +84,8 @@ public class TuniuSearchClient implements ItinerarySearchClient {
         this.flightService = createService(config.getFlightEndpoint(), config.getFlightSearchTool(), "机票", "successCode", "data");
         this.trainService = createService(config.getTrainEndpoint(), config.getTrainSearchTool(), "火车票", "successCode", "data");
         this.hotelService = createService(config.getHotelEndpoint(), config.getHotelSearchTool(), "酒店", "success", "hotels");
+        this.hotelDetailService = createService(config.getHotelEndpoint(), config.getHotelDetailTool(),
+                "酒店房型报价", null, "roomTypes");
         this.connectTimeout = toTimeout(config.getConnectTimeoutSeconds(), "连接");
         this.requestTimeout = toTimeout(config.getRequestTimeoutSeconds(), "工具请求");
         this.initialTimeout = toTimeout(config.getInitialTimeoutSeconds(), "初始化");
@@ -177,6 +175,42 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                 StringUtils.defaultIfBlank(response.queryId(), queryId), BookingType.HOTEL, criteriaId));
     }
 
+    /** 查询指定酒店的一间房型报价；每个房型报价方案转换成独立Trip候选。 */
+    @Override
+    public ItinerarySearchResult<HotelCandidate> searchHotelRooms(HotelRoomSearchRequest request) {
+        Assert.notNull(request, () -> parameterError("酒店房型报价搜索参数不能为空"));
+        Assert.notBlank(request.hotelItemId(), () -> parameterError("酒店标识不能为空"));
+        Assert.notBlank(request.city(), () -> parameterError("酒店所在城市不能为空"));
+        Assert.isTrue(request.checkInDate() != null && request.checkOutDate() != null
+                        && request.checkOutDate().isAfter(request.checkInDate())
+                        && ChronoUnit.DAYS.between(request.checkInDate(), request.checkOutDate()) <= Integer.MAX_VALUE,
+                () -> parameterError("酒店入住、离店日期必填，且离店日期必须晚于入住日期"));
+        int adultCount = request.adultCount() == null ? DEFAULT_ADULT_COUNT : request.adultCount();
+        Assert.isTrue(adultCount > 0, () -> parameterError("酒店入住成人数必须大于0"));
+        List<Integer> childAges = request.childAges() == null
+                ? List.of() : request.childAges().stream().sorted().toList();
+        Assert.isTrue(childAges.stream().allMatch(age -> age != null && age >= 0),
+                () -> parameterError("儿童年龄不能为空或负数"));
+
+        long hotelId;
+        try {
+            hotelId = Long.parseLong(request.hotelItemId().trim());
+        } catch (NumberFormatException e) {
+            throw parameterError("当前供应商酒店标识必须为正整数");
+        }
+        Assert.isTrue(hotelId > 0, () -> parameterError("当前供应商酒店标识必须为正整数"));
+        TuniuHotelDetailRequest supplierRequest = new TuniuHotelDetailRequest(hotelId,
+                request.checkInDate(), request.checkOutDate(), DEFAULT_ROOM_COUNT, adultCount,
+                childAges.size(), childAges);
+        TuniuHotelDetailResponse response = search(hotelDetailService, toArguments(supplierRequest),
+                TuniuHotelDetailResponse.class);
+        Assert.isTrue(response.hotelId() != null && response.hotelId() == hotelId
+                        && StringUtils.isNotBlank(response.hotelName()),
+                () -> SystemIntervalException.of("途牛酒店详情返回的酒店标识或名称无效"));
+        return converter.convertHotelRooms(response, request, adultCount,
+                new SearchPagination(FIRST_PAGE, FIRST_PAGE, false, null));
+    }
+
     private <T> T search(SearchService service, JSONObject arguments, Class<T> responseType) {
         Assert.notBlank(apiKey, () -> SystemIntervalException.of("企业途牛搜索服务未配置凭据，请联系管理员"));
         McpSchema.CallToolResult result;
@@ -201,7 +235,7 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                 () -> SystemIntervalException.of("途牛" + service.label() + "搜索工具执行失败"));
         JSONObject payload = extractPayload(result, service);
         // 先判定供应商业务状态，再解析具体列表；错误正文可能与正常列表结构不同。
-        Assert.isTrue(Boolean.TRUE.equals(payload.get(service.successField())),
+        Assert.isTrue(service.successField() == null || Boolean.TRUE.equals(payload.get(service.successField())),
                 () -> SystemIntervalException.of("途牛" + service.label() + "搜索未返回成功状态"));
         Assert.isTrue(payload.get(service.itemsField()) instanceof List<?>,
                 () -> SystemIntervalException.of("途牛" + service.label() + "搜索响应缺失结果数组"));
@@ -231,7 +265,7 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                     } catch (JSONException e) {
                         continue;
                     }
-                    if (candidate != null && candidate.containsKey(service.successField())) {
+                    if (candidate != null && candidate.containsKey(service.itemsField())) {
                         Assert.isTrue(payload == null, () -> SystemIntervalException.of("途牛搜索返回多个业务结果，无法确定响应"));
                         payload = candidate;
                     }

@@ -215,13 +215,13 @@ public class ItineraryPlanningResult {
     }
 
     /**
-     * 各维评分，均为 0 至 100，数值越高越好。
+     * 各维评分除未提供政策时的policy外均为 0 至 100，数值越高越好。
      * 时间、价格、体验归一化分反映本次候选池内的相对比较，不是跨候选池稳定的绝对评级。
      *
      * @param time          交通总耗时的归一化分
      * @param price         总价的归一化分
      * @param preference    去程、酒店、返程偏好分的平均值；中性评分模式各项使用 50，0 不表示排除
-     * @param policy        已检查政策项目的风险评分，不代表完整合规审核通过
+     * @param policy        已检查政策项目的风险评分；未提供政策时为null，不代表完整合规审核通过
      * @param experienceRaw 红眼、晚到达、长通勤、天气等扣分后的原始体验分
      * @param experience    原始体验分在当前组合中的归一化分
      * @param overall       时间、价格、偏好和归一化体验分按 dimensionWeights 加权的综合分

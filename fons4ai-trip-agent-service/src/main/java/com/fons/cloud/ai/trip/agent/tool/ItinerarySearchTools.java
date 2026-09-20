@@ -12,6 +12,7 @@ import com.fons.cloud.ai.trip.common.dto.SearchTimeRange;
 import com.fons.cloud.ai.trip.common.dto.TransportCandidate;
 import com.fons.cloud.ai.trip.common.request.FlightSearchRequest;
 import com.fons.cloud.ai.trip.common.request.HotelSearchRequest;
+import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.SearchPageRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
@@ -44,7 +45,7 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class ItinerarySearchTools implements BaseTool {
 
-    public static final List<String> TOOLS = List.of("search_flights", "search_trains", "search_hotels");
+    public static final List<String> TOOLS = List.of("search_flights", "search_trains", "search_hotels", "search_hotel_rooms");
     private static final ItinerarySearchProvider SEARCH_PROVIDER = ItinerarySearchProvider.TU_NIU;
 
     private final ItinerarySearchApplicationService itinerarySearchApplicationService;
@@ -137,7 +138,7 @@ public class ItinerarySearchTools implements BaseTool {
     }
 
     @Tool(name = "search_hotels", description = "搜索目的城市单间酒店并返回当前页Trip标准候选，结果会自动保存到当前会话候选池。"
-            + "候选价格可能是起价且计价口径可能未知，必须按data.candidates中的价格字段解释。"
+            + "列表候选是起价，不能直接用于plan_itinerary；选定酒店后须用source.itemId调用search_hotel_rooms取得具体报价。"
             + "翻页必须保留原条件并传上一页的continuationToken。")
     public R<ItinerarySearchResult<HotelCandidate>> searchHotels(
             RuntimeContext context,
@@ -178,6 +179,48 @@ public class ItinerarySearchTools implements BaseTool {
         } catch (Exception e) {
             log.error("[TOOL][search_hotels] 酒店搜索失败，userId={}", userId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), "酒店搜索失败，不能据此判断没有可用酒店，请稍后重试。");
+        }
+    }
+
+    @Tool(name = "search_hotel_rooms", description = "查询指定酒店的具体房型报价。必须先调用search_hotels，"
+            + "再把所选酒店候选source.itemId作为hotel_id传入。每个房型报价方案会生成独立候选并自动保存，"
+            + "成功返回的确定单间每晚报价可供plan_itinerary计算；此工具不返回可长期复用的预订令牌。")
+    public R<ItinerarySearchResult<HotelCandidate>> searchHotelRooms(
+            RuntimeContext context,
+            @ToolParam(name = "hotel_id", description = "search_hotels候选source.itemId中的酒店标识，必填") String hotelId,
+            @ToolParam(name = "city", description = "酒店所在城市，须与原酒店搜索条件一致") String city,
+            @ToolParam(name = "check_in_date", description = "入住日期，YYYY-MM-DD，须与原酒店搜索条件一致") String checkInDate,
+            @ToolParam(name = "check_out_date", description = "离店日期，YYYY-MM-DD，须与原酒店搜索条件一致") String checkOutDate,
+            @ToolParam(name = "adult_count", description = "成人数，须与原酒店搜索条件一致；不传默认2人", required = false) Integer adultCount,
+            @ToolParam(name = "child_ages", description = "儿童年龄列表，须与原酒店搜索条件一致；没有儿童时不传或传空列表", required = false) List<Integer> childAges) {
+        String userId = context.getUserId();
+        String conversationId = context.getSessionId();
+        log.info("[TOOL][search_hotel_rooms] userId={}, conversationId={}, hotelId={}, city={}, checkInDate={}, checkOutDate={}",
+                userId, conversationId, hotelId, city, checkInDate, checkOutDate);
+
+        try {
+            CandidateOwner owner = candidateOwner(userId, conversationId);
+            HotelRoomSearchRequest request = HotelRoomSearchRequest.builder()
+                    .hotelItemId(StringUtils.trimToNull(hotelId))
+                    .city(StringUtils.trimToNull(city))
+                    .checkInDate(parseDate(checkInDate, "check_in_date"))
+                    .checkOutDate(parseDate(checkOutDate, "check_out_date"))
+                    .adultCount(adultCount)
+                    .childAges(childAges)
+                    .build();
+            ItinerarySearchResult<HotelCandidate> result = itinerarySearchApplicationService.searchHotelRooms(
+                    owner, SEARCH_PROVIDER, request);
+            int count = result.candidates().size();
+            String message = count == 0
+                    ? "酒店房型报价查询完成，当前没有可用的具体房型报价。"
+                    : "酒店房型报价查询完成，返回" + count + "个具体报价并已保存，可继续规划。";
+            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
+        } catch (BusinessRuntimeException e) {
+            return businessFailure("search_hotel_rooms", userId, e);
+        } catch (Exception e) {
+            log.error("[TOOL][search_hotel_rooms] 酒店房型报价查询失败，userId={}", userId, e);
+            return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(),
+                    "酒店房型报价查询失败，不能据此判断没有可用房型，请稍后重试。");
         }
     }
 

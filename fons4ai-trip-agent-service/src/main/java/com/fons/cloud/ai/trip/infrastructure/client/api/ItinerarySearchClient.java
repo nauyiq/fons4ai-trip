@@ -5,6 +5,7 @@ import com.fons.cloud.ai.trip.common.dto.HotelCandidate;
 import com.fons.cloud.ai.trip.common.dto.TransportCandidate;
 import com.fons.cloud.ai.trip.common.request.FlightSearchRequest;
 import com.fons.cloud.ai.trip.common.request.HotelSearchRequest;
+import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
 
@@ -37,4 +38,9 @@ public interface ItinerarySearchClient {
      * 单间酒店搜索及翻页；报价保留起价标记和计价口径，不保证可直接预订。
      */
     ItinerarySearchResult<HotelCandidate> searchHotels(HotelSearchRequest request);
+
+    /**
+     * 查询指定酒店的一间房型报价；每个房型的每个报价方案转换成独立候选。
+     */
+    ItinerarySearchResult<HotelCandidate> searchHotelRooms(HotelRoomSearchRequest request);
 }

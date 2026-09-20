@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.agent.tool;
 
-import com.fons.cloud.ai.trip.agent.model.TripTimeContext;
+import com.fons.cloud.ai.trip.common.dto.TripTimeContext;
 import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.response.CheckTravelTimeValidityResult;
@@ -9,7 +9,6 @@ import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.ApprovalRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
-import com.fons.cloud.ai.trip.infrastructure.config.TripTimeContextConfiguration;
 import com.fons.cloud.common.result.R;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
@@ -17,10 +16,8 @@ import io.agentscope.core.tool.ToolParam;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -38,14 +35,11 @@ public class TravelOrderReadTools implements BaseTool {
 
     private final TravelOrderDomainService travelOrderDomainService;
     private final ApprovalRecordDomainService approvalRecordDomainService;
-    private final Clock clock;
 
     public TravelOrderReadTools(TravelOrderDomainService travelOrderDomainService,
-            ApprovalRecordDomainService approvalRecordDomainService,
-            @Qualifier(TripTimeContextConfiguration.TRIP_AGENT_CLOCK) Clock clock) {
+            ApprovalRecordDomainService approvalRecordDomainService) {
         this.travelOrderDomainService = travelOrderDomainService;
         this.approvalRecordDomainService = approvalRecordDomainService;
-        this.clock = clock;
     }
 
     @Tool(name = "query_travel_order", description = "按出发城市、目的地和出发日期查询当前用户的差旅单候选列表，包含各状态。多条匹配时先让用户选择目标；无匹配时返回成功和空列表。")
@@ -172,7 +166,7 @@ public class TravelOrderReadTools implements BaseTool {
         String userId = context.getUserId();
         // 优先沿用本轮模型日期；独立调用工具时也使用配置的业务时区。
         TripTimeContext timeContext = context.get(TripTimeContext.class);
-        LocalDate today = timeContext == null ? LocalDate.now(clock) : timeContext.currentDate();
+        LocalDate today = timeContext == null ? LocalDate.now() : timeContext.currentDate();
         log.info("[TOOL][check_travel_time_validity] userId={}, orderId={}, today={}", userId, orderId, today);
 
         // 参数校验
