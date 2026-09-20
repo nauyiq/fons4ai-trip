@@ -35,7 +35,7 @@ import java.util.Locale;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class TravelOrderConflictTools {
+public class TravelOrderConflictTools implements BaseTool {
     public static final List<String> TOOLS = List.of("check_travel_order_conflicts");
 
     private final TravelOrderDomainService travelOrderDomainService;
@@ -248,5 +248,10 @@ public class TravelOrderConflictTools {
             value = value.substring(0, value.length() - 1);
         }
         return value.toLowerCase(Locale.ROOT);
+    }
+
+    @Override
+    public List<String> tools() {
+        return TOOLS;
     }
 }

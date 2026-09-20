@@ -7,7 +7,9 @@ server:
 
 spring:
   config:
-    import: classpath:city-transit.yml
+    import:
+      - classpath:city-transit.yml
+      - classpath:travel-policy.yml
   application:
     name: fons4ai-trip-agent
   main:
@@ -55,6 +57,12 @@ sys:
         service-name: ${spring.application.name}
 
 trip:
+  mcp:
+    tuniu:
+      # 企业统一配置的搜索服务凭据，不要求员工提供个人Key。
+      api-key: ${TUNIU_API_KEY:}
+  destination-news:
+    api-key: ${NEWSDATA_API_KEY:}
   model:
     configs:
      strong-model:
@@ -73,6 +81,3 @@ trip:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
        model-name: qwen3.6-flash
-  agent:
-    time-context:
-      zone-id: Asia/Shanghai

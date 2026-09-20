@@ -49,7 +49,7 @@
 
         <dependency>
             <groupId>com.fons.cloud</groupId>
-            <artifactId>fons4cloud-common-lock</artifactId>
+            <artifactId>fons4cloud-common-cache</artifactId>
             <version>${fons4cloud.version}</version>
         </dependency>
 

@@ -29,7 +29,7 @@ import java.util.Locale;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class BookingReadTools {
+public class BookingReadTools implements BaseTool  {
     public static final List<String> TOOLS = List.of("query_booking_record");
 
     private final BookingRecordDomainService bookingRecordDomainService;
@@ -100,5 +100,8 @@ public class BookingReadTools {
 
     }
 
-
+    @Override
+    public List<String> tools() {
+        return TOOLS;
+    }
 }

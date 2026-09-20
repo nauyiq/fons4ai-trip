@@ -5,8 +5,8 @@ import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson2.JSON;
-import com.fons.cloud.ai.trip.application.BookingApplicationService;
-import com.fons.cloud.ai.trip.application.TravelOrderApplicationService;
+import com.fons.cloud.ai.trip.application.business.BookingApplicationService;
+import com.fons.cloud.ai.trip.application.business.TravelBusinessApplicationService;
 import com.fons.cloud.ai.trip.common.constants.BookingType;
 import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
@@ -41,10 +41,10 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class TravelOrderWriteTools {
+public class TravelOrderWriteTools implements BaseTool {
     public static final List<String> TOOLS = List.of("submit_travel_approval", "cancel_travel_order", "modify_travel_order");
 
-    private final TravelOrderApplicationService travelOrderApplicationService;
+    private final TravelBusinessApplicationService travelBusinessApplicationService;
     private final BookingApplicationService bookingApplicationService;
 
     @Tool(name = "submit_travel_approval", description = "用户确认完整出行摘要后，为当前用户创建差旅申请并提交业务审批，提交成功不代表审批通过。"
@@ -74,7 +74,7 @@ public class TravelOrderWriteTools {
 
         try {
             // 调用应用层服务发起差旅单的创建
-            R<SubmitTravelApprovalResult> result = travelOrderApplicationService.createTravelOrder(TravelOrderCreateRequest.builder()
+            R<SubmitTravelApprovalResult> result = travelBusinessApplicationService.createTravelOrder(TravelOrderCreateRequest.builder()
                     .userId(userId)
                     .destination(destination)
                     .departureCity(departureCity)
@@ -96,7 +96,7 @@ public class TravelOrderWriteTools {
             }
 
             // 新提交申请回查SUBMITTED状态，确认事务已落库
-            R<Void> valid = travelOrderApplicationService.verifyOrderStatus(approvalResult.orderId(), TravelOrderStatus.SUBMITTED);
+            R<Void> valid = travelBusinessApplicationService.verifyOrderStatus(approvalResult.orderId(), TravelOrderStatus.SUBMITTED);
             if (!valid.isSuccess()) {
                 // 写操作已经执行但是事务回查失败
                 log.warn("[TOOL][submit_travel_approval]差旅单校验失败， code：{}, message:{}", valid.getCode(), valid.getMessage());
@@ -132,7 +132,7 @@ public class TravelOrderWriteTools {
 
         try {
             // 调用应用层服务发起差旅单的取消
-            R<CancelOderOutcome> cancelResult = travelOrderApplicationService.cancelTravelOrder(TravelOrderCancelRequest.builder()
+            R<CancelOderOutcome> cancelResult = travelBusinessApplicationService.cancelTravelOrder(TravelOrderCancelRequest.builder()
                     .userId(userId)
                     .oderId(travelOrderId)
                     .reason(reason)
@@ -163,7 +163,7 @@ public class TravelOrderWriteTools {
             }
 
             // 这里进行事务回查防止写库失败
-            R<Void> valid = travelOrderApplicationService.verifyOrderStatus(travelOrderId, TravelOrderStatus.CANCELLED);
+            R<Void> valid = travelBusinessApplicationService.verifyOrderStatus(travelOrderId, TravelOrderStatus.CANCELLED);
             if (!valid.isSuccess()) {
                 // 写操作已经执行但是事务回查失败
                 log.warn("[TOOL][cancel_travel_order]差旅单校验失败， code：{}, message:{}", valid.getCode(), valid.getMessage());
@@ -210,7 +210,7 @@ public class TravelOrderWriteTools {
 
         try {
             // 调用应用层服务修改差旅单、撤销旧审批并重新提交
-            R<ModifyTravelApprovalResult> modifyResult = travelOrderApplicationService.modifyTravelOrder(TravelOrderModifyRequest.builder()
+            R<ModifyTravelApprovalResult> modifyResult = travelBusinessApplicationService.modifyTravelOrder(TravelOrderModifyRequest.builder()
                     .userId(userId)
                     .orderId(orderId)
                     .destination(destination)
@@ -250,7 +250,7 @@ public class TravelOrderWriteTools {
             }
 
             // 事务提交后回查差旅单状态，防止写库失败
-            R<Void> valid = travelOrderApplicationService.verifyOrderStatus(orderId, TravelOrderStatus.SUBMITTED);
+            R<Void> valid = travelBusinessApplicationService.verifyOrderStatus(orderId, TravelOrderStatus.SUBMITTED);
             if (!valid.isSuccess()) {
                 log.warn("[TOOL][modify_travel_order]差旅单校验失败， code：{}, message:{}", valid.getCode(), valid.getMessage());
                 return R.failed(TripAgentToolResultCode.VERIFY_FAILED.getCode(), StrUtil.format("操作已执行但验证不通过, orderId={}, cause:{}", orderId, valid.getMessage()));
@@ -361,5 +361,8 @@ public class TravelOrderWriteTools {
         return sb.toString();
     }
 
-
+    @Override
+    public List<String> tools() {
+        return TOOLS;
+    }
 }

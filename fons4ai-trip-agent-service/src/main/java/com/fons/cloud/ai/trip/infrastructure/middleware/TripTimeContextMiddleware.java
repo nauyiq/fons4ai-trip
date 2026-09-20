@@ -1,7 +1,6 @@
 package com.fons.cloud.ai.trip.infrastructure.middleware;
 
-import com.fons.cloud.ai.trip.agent.model.TripTimeContext;
-import com.fons.cloud.ai.trip.infrastructure.config.TripTimeContextConfiguration;
+import com.fons.cloud.ai.trip.common.dto.TripTimeContext;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
@@ -11,12 +10,11 @@ import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.middleware.ReasoningInput;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
-import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Locale;
@@ -31,12 +29,6 @@ import java.util.function.Function;
 @Component
 public class TripTimeContextMiddleware implements MiddlewareBase {
 
-    private final Clock clock;
-
-    public TripTimeContextMiddleware(
-            @Qualifier(TripTimeContextConfiguration.TRIP_AGENT_CLOCK) Clock clock) {
-        this.clock = clock;
-    }
 
     @Override
     public Flux<AgentEvent> onAgent(Agent agent, RuntimeContext context, AgentInput input,
@@ -77,7 +69,8 @@ public class TripTimeContextMiddleware implements MiddlewareBase {
     private TripTimeContext getOrCreate(RuntimeContext context) {
         TripTimeContext timeContext = context.get(TripTimeContext.class);
         if (timeContext == null) {
-            timeContext = new TripTimeContext(LocalDate.now(clock), clock.getZone());
+            ZoneId zoneId = ZoneId.systemDefault();
+            timeContext = new TripTimeContext(LocalDate.now(zoneId), zoneId);
             context.put(TripTimeContext.class, timeContext);
         }
         return timeContext;

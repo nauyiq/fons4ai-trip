@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.controller;
 
-import com.fons.cloud.ai.trip.application.AuthApplicationService;
+import com.fons.cloud.ai.trip.application.user.AuthApplicationService;
 import com.fons.cloud.ai.trip.common.request.LoginRequest;
 import com.fons.cloud.ai.trip.common.vo.TokenInfo;
 import com.fons.cloud.ai.trip.common.vo.UserInfo;

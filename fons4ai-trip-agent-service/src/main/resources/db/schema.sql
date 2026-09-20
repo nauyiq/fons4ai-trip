@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '对话消息';
 
 -- ============================================================
--- 用户 API Key 存储（加密存储，支持多服务提供商）
+-- 已废弃：个人 API Key 存储，仅保留历史结构；企业搜索服务不再读写此表。
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `user_api_key` (
