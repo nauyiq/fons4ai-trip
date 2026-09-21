@@ -7,14 +7,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 问题改写Agent配置
+ * 意图识别Agent
  * @author hongqy
  */
 @Getter
 @Setter
 @Component
-@ConfigurationProperties(prefix = "trip.agent.query-rewrite")
-public class QueryRewriteAgentConfigProperties {
+@ConfigurationProperties(prefix = "trip.agent.intent-recognition")
+public class IntentRecognitionAgentConfigProperties {
 
     /**
      * 负责问题改写的模型
