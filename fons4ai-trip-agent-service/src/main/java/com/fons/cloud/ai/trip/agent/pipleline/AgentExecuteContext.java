@@ -7,7 +7,6 @@ import com.fons.cloud.ai.agent.model.request.AgentRequest;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import lombok.Getter;
-import lombok.Setter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
@@ -21,14 +20,19 @@ import java.util.List;
 public final class AgentExecuteContext {
 
     /**
+     * 工作流ID
+     */
+    private final String workflowId;
+
+    /**
      * 用户请求Agent的原始请求
      */
     private final AgentRequest userInput;
 
+
     /**
      * 决定管道工作流中需要走的下一个步骤
      */
-    @Setter
     private AgentExecutionStep step;
 
     /**
@@ -36,28 +40,35 @@ public final class AgentExecuteContext {
      */
     private IntentRecognitionResult recognitionResult;
 
-    private AgentExecuteContext(AgentRequest userInput) {
+
+
+    private AgentExecuteContext(String workflowId, AgentRequest userInput) {
+        this.workflowId = workflowId;
         this.userInput = userInput;
     }
 
-    public static AgentExecuteContext create(AgentRequest userInput) {
-        return create(null, userInput);
+    public static AgentExecuteContext create(String workflowId, AgentRequest userInput) {
+        return create(null, workflowId, userInput);
     }
 
-    public static AgentExecuteContext create(String agentName, AgentRequest userInput) {
+    public static AgentExecuteContext create(String agentName, String workflowId, AgentRequest userInput) {
         Assert.notNull(userInput, () -> SystemIntervalException.of("Agent请求不能为空"));
 
-        AgentExecuteContext context = new AgentExecuteContext(userInput);
-        context.setStep(AgentExecutionStep.SEMANTICS_RECOGNITION_STEP);
+        AgentExecuteContext context = new AgentExecuteContext(workflowId, userInput);
+        context.nextStep(AgentExecutionStep.SEMANTICS_RECOGNITION_STEP);
         if (StringUtils.isNotBlank(agentName)) {
             AgentExecutionStep executionStep = AgentExecutionStep.getAgentExecutionStep(agentName);
-            context.setStep(executionStep);
+            context.nextStep(executionStep);
         }
         return context;
     }
 
     public void recognition(IntentRecognitionResult recognitionResult) {
         this.recognitionResult = recognitionResult;
+    }
+
+    public void nextStep(AgentExecutionStep step) {
+        this.step = step;
     }
 
     /**
@@ -77,6 +88,7 @@ public final class AgentExecuteContext {
         return null;
     }
 
-
-
+    public String getUserId() {
+        return userInput.getUserId();
+    }
 }

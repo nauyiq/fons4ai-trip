@@ -31,7 +31,7 @@ public class SemanticsRecognitionStepHandler extends AbstractAgentExecuteHandler
             context.recognition(recognition.getData());
             return ExecuteResult.success(AgentExecutionStep.EXECUTE_TASK_STEP);
         } else {
-            // 识别失败 直接下一步
+            // 识别失败 直接下一步进行语义识别
             log.info("语义识别失败， code:{}, message:{}", recognition.getCode(), recognition.getMessage());
             return ExecuteResult.success();
         }

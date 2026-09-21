@@ -37,6 +37,11 @@ public class ChatConversation extends BaseEntity {
     private String title;
 
     /**
+     * 正在活跃的工作流Id
+     */
+    private String activeWorkerFlowId;
+
+    /**
      * 逻辑删除标志
      */
     @TableLogic

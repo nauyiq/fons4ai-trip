@@ -49,9 +49,9 @@ public abstract class AbstractAgentExecuteHandler implements AgentExecuteHandler
 
             if (execute.nextStep != null) {
                 // 处理器指定步骤的情况下 以处理器的步骤结果为主
-                request.setStep(execute.nextStep);
+                request.nextStep(execute.nextStep);
             } else {
-                request.setStep(nextStep());
+                request.nextStep(nextStep());
             }
 
         } catch (BizException e) {
