@@ -1,8 +1,8 @@
-package com.fons.cloud.ai.trip.agent.pipleline.support;
+package com.fons.cloud.ai.trip.agent.pipeline.support;
 
 import com.alibaba.fastjson2.JSON;
-import com.fons.cloud.ai.trip.agent.pipleline.AgentExecuteContext;
-import com.fons.cloud.ai.trip.agent.pipleline.AgentExecutionStep;
+import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
+import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
 import com.fons.cloud.ai.trip.infrastructure.util.SemanticsMatcherIntentRecognition;
 import com.fons.cloud.common.result.R;
@@ -20,7 +20,7 @@ public class SemanticsRecognitionStepHandler extends AbstractAgentExecuteHandler
     private final SemanticsMatcherIntentRecognition semanticsMatcherIntentRecognition;
 
     @Override
-    protected ExecuteResult execute(AgentExecuteContext context) {
+    protected ExecuteResult execute(AgentPipelineExecuteContext context) {
         // 开始L1L2级别的语义识别
         String text = context.extractUserTextInput();
         R<IntentRecognitionResult> recognition = semanticsMatcherIntentRecognition.semanticsRecognition(text);

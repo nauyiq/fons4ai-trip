@@ -53,6 +53,11 @@ public class ChatMessage extends BaseEntity {
     private String content;
 
     /**
+     * 构造给用户的思考内容, 并非表示LLM的思考内容
+     */
+    private String thinking;
+
+    /**
      * 消息类型
      */
     private ChatMessageContentType type;

@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.agent.pipleline;
+package com.fons.cloud.ai.trip.agent.pipeline;
 
 import com.fons.cloud.common.pipeline.PipelineHandler;
 
@@ -6,7 +6,7 @@ import com.fons.cloud.common.pipeline.PipelineHandler;
  * 一次Agent管道处理器
  * @author hongqy
  */
-public interface AgentExecuteHandler extends PipelineHandler<AgentExecuteContext> {
+public interface AgentExecuteHandler extends PipelineHandler<AgentPipelineExecuteContext> {
 
     /**
      * 当前处理器对应步骤

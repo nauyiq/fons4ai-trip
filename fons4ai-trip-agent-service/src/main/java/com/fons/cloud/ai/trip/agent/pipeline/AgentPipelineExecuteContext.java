@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.agent.pipleline;
+package com.fons.cloud.ai.trip.agent.pipeline;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.agent.model.request.AgentInputContent;
@@ -13,11 +13,11 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 
 /**
- * 分析型Agent执行上下文
+ * Agent管道工作流执行上下文
  * @author hongqy
  */
 @Getter
-public final class AgentExecuteContext {
+public final class AgentPipelineExecuteContext {
 
     /**
      * 工作流ID
@@ -29,32 +29,35 @@ public final class AgentExecuteContext {
      */
     private final AgentRequest userInput;
 
-
     /**
      * 决定管道工作流中需要走的下一个步骤
      */
-    private AgentExecutionStep step;
+    private volatile AgentExecutionStep step;
 
     /**
      * 意图识别结果
      */
-    private IntentRecognitionResult recognitionResult;
+    private volatile IntentRecognitionResult recognitionResult;
+
+    /**
+     * 问题重写结果
+     */
+    private volatile String queryRewriteResult;
 
 
-
-    private AgentExecuteContext(String workflowId, AgentRequest userInput) {
+    private AgentPipelineExecuteContext(String workflowId, AgentRequest userInput) {
         this.workflowId = workflowId;
         this.userInput = userInput;
     }
 
-    public static AgentExecuteContext create(String workflowId, AgentRequest userInput) {
+    public static AgentPipelineExecuteContext create(String workflowId, AgentRequest userInput) {
         return create(null, workflowId, userInput);
     }
 
-    public static AgentExecuteContext create(String agentName, String workflowId, AgentRequest userInput) {
+    public static AgentPipelineExecuteContext create(String agentName, String workflowId, AgentRequest userInput) {
         Assert.notNull(userInput, () -> SystemIntervalException.of("Agent请求不能为空"));
 
-        AgentExecuteContext context = new AgentExecuteContext(workflowId, userInput);
+        AgentPipelineExecuteContext context = new AgentPipelineExecuteContext(workflowId, userInput);
         context.nextStep(AgentExecutionStep.SEMANTICS_RECOGNITION_STEP);
         if (StringUtils.isNotBlank(agentName)) {
             AgentExecutionStep executionStep = AgentExecutionStep.getAgentExecutionStep(agentName);

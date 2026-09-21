@@ -1,10 +1,10 @@
-package com.fons.cloud.ai.trip.agent.pipleline.support;
+package com.fons.cloud.ai.trip.agent.pipeline.support;
 
 import cn.hutool.core.lang.Assert;
 import com.alibaba.fastjson2.JSON;
-import com.fons.cloud.ai.trip.agent.pipleline.AgentExecuteContext;
-import com.fons.cloud.ai.trip.agent.pipleline.AgentExecuteHandler;
-import com.fons.cloud.ai.trip.agent.pipleline.AgentExecutionStep;
+import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
+import com.fons.cloud.ai.trip.agent.pipeline.AgentExecuteHandler;
+import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.common.base.exception.BizException;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
@@ -23,7 +23,7 @@ import org.apache.commons.collections4.CollectionUtils;
 public abstract class AbstractAgentExecuteHandler implements AgentExecuteHandler {
 
     @Override
-    public final void handle(AgentExecuteContext request) {
+    public final void handle(AgentPipelineExecuteContext request) {
         // 基础数据校验
         Assert.notNull(request, () -> SystemIntervalException.of("Agent管道工作流执行上下文不能为空"));
         Assert.notNull(request.getStep(), () -> SystemIntervalException.of("Agent管道执行上下文步骤为空， 请检查数据"));
@@ -74,7 +74,7 @@ public abstract class AbstractAgentExecuteHandler implements AgentExecuteHandler
      * @param context
      * @return
      */
-    protected abstract ExecuteResult execute(AgentExecuteContext context);
+    protected abstract ExecuteResult execute(AgentPipelineExecuteContext context);
 
 
     @RequiredArgsConstructor

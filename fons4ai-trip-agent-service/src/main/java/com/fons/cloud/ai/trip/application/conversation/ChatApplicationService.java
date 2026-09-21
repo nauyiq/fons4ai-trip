@@ -1,11 +1,7 @@
 package com.fons.cloud.ai.trip.application.conversation;
 
-import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.lang.Assert;
-import com.fons.cloud.ai.agent.model.request.AgentInputContent;
-import com.fons.cloud.ai.agent.model.request.AgentInputContentType;
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
-import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
 import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.ai.trip.common.request.ChatRequest;
@@ -13,11 +9,9 @@ import com.fons.cloud.ai.trip.domain.entity.ChatConversation;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.service.ChatConversationDomainService;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
+import com.fons.cloud.ai.trip.infrastructure.converter.ChatMessageConverter;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.common.result.ResultCode;
-import com.fons.cloud.file.api.OssStoreService;
-import com.fons.cloud.file.common.request.OssObjectRequest;
-import com.fons.cloud.file.common.response.OssObjectResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,10 +30,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ChatApplicationService {
 
-    private final OssStoreService ossStoreService;
     private final TransactionTemplate transactionTemplate;
     private final ChatMessageDomainService chatMessageDomainService;
     private final ChatConversationDomainService chatConversationDomainService;
+
+    private final ChatMessageConverter chatMessageConverter;
 
 
     /**
@@ -114,23 +109,8 @@ public class ChatApplicationService {
                 .userId(request.getUserId())
                 .conversationId(request.getSessionId())
                 .runId(first.getRunId())
-                .contents(messages.stream().map(this::buildAgentInputContent).toList())
+                .contents(messages.stream().map(chatMessageConverter::convertAgentInputContent).toList())
                 .build();
     }
 
-    private AgentInputContent buildAgentInputContent(ChatMessage message) {
-        return switch (message.getType()) {
-            case TEXT -> AgentInputContent.builder()
-                    .text(message.getContent())
-                    .type(AgentInputContentType.TEXT)
-                    .build();
-            case IMAGE, VOICE -> {
-                OssObjectResponse objectInfo = ossStoreService.getObjectInfo(OssObjectRequest.builder().objectKey(message.getContent()).build());
-                yield AgentInputContent.builder()
-                        .data(IoUtil.readBytes(objectInfo.getInputStream()))
-                        .mimeType(objectInfo.getContentType())
-                        .type(message.getType() == ChatMessageContentType.IMAGE ? AgentInputContentType.IMAGE : AgentInputContentType.AUDIO).build();
-            }
-        };
-    }
 }

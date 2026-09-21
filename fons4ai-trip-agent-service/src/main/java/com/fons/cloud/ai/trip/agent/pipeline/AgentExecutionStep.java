@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.agent.pipleline;
+package com.fons.cloud.ai.trip.agent.pipeline;
 
 import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import lombok.AllArgsConstructor;
