@@ -7,6 +7,7 @@ import com.fons.cloud.ai.agent.core.AgentTaskManager;
 import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceMiddleware;
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.mcp.WeatherMcp;
+import com.fons.cloud.ai.trip.infrastructure.middleware.AnalysisAgentMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.CompressConfig;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.MasterAgentConfigProperties;
 import com.fons.cloud.ai.trip.agent.tool.*;
@@ -49,7 +50,9 @@ public class MasterAgent {
     private final FonsAgentTraceMiddleware fonsAgentTraceMiddleware;
     // 为每轮请求提供可信日期 父子Agent公用
     private final TripTimeContextMiddleware tripTimeContextMiddleware;
-    // 持久化当前会话顶层Agent身份的中间件
+    // 将Pipeline分析结果临时注入MasterAgent的模型输入
+    private final AnalysisAgentMiddleware analysisAgentMiddleware;
+    // 持久化当前会话Agent身份的中间件
     private final ActiveAgentPersistenceMiddleware activeAgentPersistenceMiddleware;
 
     // == 工具清单 ==
@@ -125,7 +128,8 @@ public class MasterAgent {
         HarnessAgent.Builder masterBuilder = commonBuilder()
                 .name(TripAgent.MASTER_AGENT.getAgentName())
                 .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
-                .middleware(activeAgentPersistenceMiddleware);
+                .middleware(analysisAgentMiddleware);
+
 
         // 配置行程管理子Agent
         masterBuilder.subagentFactory(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName(), TripAgent.ITINERARY_MANAGE_AGENT.getDescription(),
@@ -149,6 +153,7 @@ public class MasterAgent {
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .middleware(tripTimeContextMiddleware)
                 .middleware(fonsAgentTraceMiddleware)
+                .middleware(activeAgentPersistenceMiddleware)
                 .model(ModelFacade.getModel(properties.getMainModel()))
                 .workspace(Paths.get(properties.getWorkspace()))
                 .distributedStore(distributedStore)

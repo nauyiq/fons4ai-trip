@@ -10,10 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 /**
@@ -34,7 +31,7 @@ public class ChatController {
      * @param request
      * @return
      */
-    @PostMapping()
+    @GetMapping(value = "/stream", produces = "text/event-stream;charset=UTF-8")
     public Flux<String> chat(@Valid ChatRequest request) {
         String userId = saTokenAuthTemplate.getCurrentLoginIdAsString();
         if (StringUtils.isBlank(userId)) {

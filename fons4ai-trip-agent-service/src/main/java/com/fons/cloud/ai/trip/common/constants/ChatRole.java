@@ -14,8 +14,11 @@ import lombok.Getter;
 public enum ChatRole {
 
     USER("user"),
+    USER_RESUME("user_resume"),
     AGENT("agent"),
+    AGENT_HITL("agent_hitl"),
     SYSTEM("system");
+
 
     @EnumValue
     private final String code;

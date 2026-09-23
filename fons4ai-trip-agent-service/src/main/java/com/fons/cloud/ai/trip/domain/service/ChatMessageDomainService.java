@@ -18,4 +18,7 @@ public interface ChatMessageDomainService extends IService<ChatMessage> {
      */
     List<ChatMessage> findRecentMessages(String conversationId, int limit);
 
+    /** 查询本轮请求之前的最近 N 条消息，返回顺序仍为时间正序。 */
+    List<ChatMessage> findRecentMessages(String conversationId, String excludedRunId, int limit);
+
 }

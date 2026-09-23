@@ -5,8 +5,11 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.mapper.ChatMessageMapper;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -17,9 +20,20 @@ public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper,
 
     @Override
     public List<ChatMessage> findRecentMessages(String conversationId, int limit) {
-        return list(Wrappers.lambdaQuery(ChatMessage.class)
+        return findRecentMessages(conversationId, null, limit);
+    }
+
+    @Override
+    public List<ChatMessage> findRecentMessages(String conversationId, String excludedRunId, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        List<ChatMessage> recent = new ArrayList<>(list(Wrappers.lambdaQuery(ChatMessage.class)
                 .eq(ChatMessage::getConversationId, conversationId)
-                .orderByAsc(ChatMessage::getCreated)
-                .last("LIMIT " + limit));
+                .ne(StringUtils.isNotBlank(excludedRunId), ChatMessage::getRunId, excludedRunId)
+                .orderByDesc(ChatMessage::getCreated, ChatMessage::getMessageId)
+                .last("LIMIT " + limit)));
+        Collections.reverse(recent);
+        return recent;
     }
 }

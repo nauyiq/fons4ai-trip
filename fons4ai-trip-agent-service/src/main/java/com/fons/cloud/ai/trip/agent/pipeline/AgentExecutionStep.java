@@ -1,6 +1,5 @@
 package com.fons.cloud.ai.trip.agent.pipeline;
 
-import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -13,38 +12,32 @@ import lombok.Getter;
 public enum AgentExecutionStep {
 
     /**
-     * 语义识别， 通过L0, L1, L2级别的文本匹配 判断用户意图
+     * 语义意图识别， 通过L0, L1, L2级别的文本匹配 判断用户意图
      */
-    SEMANTICS_RECOGNITION_STEP(null),
+    SEMANTICS_RECOGNITION_STEP,
 
     /**
      * 问题重写步骤， 直接调用LLM发起问题改写
      */
-    LLM_QUERY_WRITING_STEP(TripAgent.QUERY_REWRITE_AGENT.getAgentName()),
+    QUERY_WRITING_STEP,
 
     /**
-     * LLM意图识别步骤
+     * 意图识别步骤
      */
-    LLM_INTENT_RECOGNITION_STEP(TripAgent.INTENT_RECOGNITION_AGENT.getAgentName()),
+    INTENT_RECOGNITION_STEP,
 
     /**
      * 最终执行任务步骤
      */
-    EXECUTE_TASK_STEP(TripAgent.MASTER_AGENT.getAgentName()),
+    EXECUTE_TASK_STEP,
 
+    /**
+     * 结束步骤， 不会有任何实现
+     */
+    END,
 
     ;
 
-    private final String agentName;
-
-    public static AgentExecutionStep getAgentExecutionStep(String agentName) {
-        for (AgentExecutionStep step : values()) {
-            if (step.getAgentName() != null && step.getAgentName().equals(agentName)) {
-                return step;
-            }
-        }
-        return null;
-    }
 
 
 
