@@ -63,6 +63,7 @@ public class TravelPolicyApplicationService {
         log.info("查询差旅政策，userId={}，level={}，city={}，cityTier={}", userId, level, city, cityTier.getLabel());
 
         return TravelPolicy.builder()
+                .policyRuleId(rule.getId() == null ? null : rule.getId().toString())
                 .userLevel(level)
                 .destinationCity(city)
                 .cityTier(cityTier.getLabel())
@@ -139,17 +140,8 @@ public class TravelPolicyApplicationService {
             return;
         }
         String normalized = actual.trim();
-        TravelCabinClass actualClass = TravelCabinClass.of(type, normalized);
-        for (String item : allowedSpec.replace('，', ',').replace('/', ',').split(",")) {
-            String allowed = item.trim();
-            if (allowed.isEmpty()) {
-                continue;
-            }
-            TravelCabinClass allowedClass = TravelCabinClass.of(type, allowed);
-            if ((actualClass != null && actualClass.isNoHigherThan(allowedClass))
-                    || normalized.equalsIgnoreCase(allowed)) {
-                return;
-            }
+        if (TravelCabinClass.isCompliant(type, normalized, allowedSpec)) {
+            return;
         }
         // 未知名称只能精确匹配，避免包含关系误判为合规。
         violations.add(label + "不符合政策标准或无法识别：允许" + allowedSpec);

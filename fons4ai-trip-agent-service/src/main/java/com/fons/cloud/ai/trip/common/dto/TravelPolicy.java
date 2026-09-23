@@ -25,6 +25,11 @@ public class TravelPolicy implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
+     * 生成本政策快照的规则标识，用于规划审核追溯。
+     */
+    private String policyRuleId;
+
+    /**
      * 用户档案中的职级，例如 P5、P6、P7、P8，用于匹配政策规则的职级区间。
      */
     private String userLevel;
@@ -49,7 +54,8 @@ public class TravelPolicy implements Serializable {
     private double hotelLimit;
 
     /**
-     * 酒店星级上限，例如 4 表示最高四星级；当前订单合规校验不检查此字段。
+     * 酒店星级上限，例如 4 表示最高四星级；规划方案审核会检查此字段。
+     * 单笔订单合规校验暂不检查此字段。
      */
     private int hotelStarLimit;
 
@@ -70,12 +76,14 @@ public class TravelPolicy implements Serializable {
     private String trainSeatClass;
 
     /**
-     * 超过该金额需审批，单位元；当前合规校验不检查此字段。
+     * 超过该金额需审批，单位元；规划方案审核会生成待审批提醒。
+     * 单笔订单合规校验暂不检查此字段。
      */
     private double approvalThreshold;
 
     /**
-     * 最少提前预订天数；当前合规校验不检查此字段。
+     * 最少提前预订天数；规划方案审核按审核当日检查此字段。
+     * 单笔订单合规校验暂不检查此字段。
      */
     private int advanceBookingDays;
 

@@ -51,6 +51,12 @@ public class ItineraryPlanRequest extends BaseRequest {
     private String conversationId;
 
     /**
+     * 本次规划关联的差旅单号，可选。该值来自模型工具参数时仍属于未验证引用，
+     * 应用层必须按当前用户重新查询差旅单后才能写入规划结果。
+     */
+    private String travelOrderId;
+
+    /**
      * 出发城市，去除首尾空格，与候选搜索、存储及查询使用同一城市标识。
      */
     private String origin;
@@ -66,7 +72,7 @@ public class ItineraryPlanRequest extends BaseRequest {
     private LocalDate departureDate;
 
     /**
-     * 返程出发日期，按目的地当地日历解释，不早于去程日期；实际住宿必须至少一晚。
+     * 返程出发日期，按目的地当地日历解释，必须晚于去程日期；实际住宿至少一晚。
      */
     private LocalDate returnDate;
 
@@ -108,7 +114,7 @@ public class ItineraryPlanRequest extends BaseRequest {
     /**
      * 明确排除的交通或酒店候选 ID，null 或空列表表示不额外排除。
      * 应校验 ID 属于本次候选池，组合计算前排除；不得以 scores 中的 0 分替代排除。
-     * 工具层后续需增加相应参数，或由应用层承接已确定的修复指令，当前工具入口尚未接入该字段。
+     * 工具层只承接已经确定的排除项，应用层仍会校验候选 ID 是否属于本次候选池。
      */
     private List<String> excludedCandidateIds;
 
@@ -154,6 +160,7 @@ public class ItineraryPlanRequest extends BaseRequest {
     private void normalizeBasicFields() {
         setUserId(StringUtils.trimToNull(getUserId()));
         setConversationId(StringUtils.trimToNull(getConversationId()));
+        setTravelOrderId(StringUtils.trimToNull(getTravelOrderId()));
         setOrigin(StringUtils.trimToNull(getOrigin()));
         setDestination(StringUtils.trimToNull(getDestination()));
         setPreferences(StringUtils.trimToEmpty(getPreferences()));

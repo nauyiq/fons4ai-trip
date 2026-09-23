@@ -62,6 +62,7 @@ public class MasterAgent {
     private final PolicyTools policyTools;
     private final ItinerarySearchTools itinerarySearchTools;
     private final ItineraryPlannerTools itineraryPlannerTools;
+    private final ItineraryPlanReadTools itineraryPlanReadTools;
     private final DestinationLiveTools destinationLiveTools;
 
     // == MCP清单 ==
@@ -103,11 +104,13 @@ public class MasterAgent {
         toolkit.registerTool(policyTools);
         toolkit.registerTool(itinerarySearchTools);
         toolkit.registerTool(itineraryPlannerTools);
+        toolkit.registerTool(itineraryPlanReadTools);
 
         // 子AGENT构建
         HarnessAgent itineraryPlanAgent = commonBuilder()
                 .name(TripAgent.ITINERARY_PLAN_AGENT.getAgentName())
                 .description(TripAgent.ITINERARY_PLAN_AGENT.getDescription())
+                .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-plan-agent-system.md"))
                 .enableTaskList(true)
                 .toolkit(toolkit)
                 .disableSubagents()

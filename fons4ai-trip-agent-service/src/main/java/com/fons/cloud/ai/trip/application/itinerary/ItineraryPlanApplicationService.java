@@ -1,10 +1,9 @@
 package com.fons.cloud.ai.trip.application.itinerary;
 
 import com.alibaba.fastjson2.JSON;
-import com.fons.cloud.ai.trip.common.constants.BookingType;
+import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateGroups;
-import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateScope;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot.PreparationResult;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot.SelectedCandidates;
@@ -15,6 +14,9 @@ import com.fons.cloud.ai.trip.common.dto.ItineraryPlanningCandidates;
 import com.fons.cloud.ai.trip.common.dto.ItineraryPlanningCandidates.ConversionResult;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
+import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TravelOrderReference;
+import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
+import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryCandidateRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
 import com.fons.cloud.common.result.R;
@@ -22,8 +24,11 @@ import com.fons.cloud.common.result.ResultCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 /**
@@ -39,6 +44,7 @@ public class ItineraryPlanApplicationService {
 
     private final ItineraryCandidateRepository candidateRepository;
     private final ItineraryPlanRepository planRepository;
+    private final TravelOrderDomainService travelOrderDomainService;
 
     /**
      * 生成并保存一次单目的城市往返行程规划结果。
@@ -60,10 +66,16 @@ public class ItineraryPlanApplicationService {
 
         log.info("ItineraryPlanApplicationService#plan: request={}", JSON.toJSONString(request));
 
-        // 2. 按可信用户、会话和行程条件读取本次规划候选快照
+        // 2. 验证可选差旅单关联，模型提供的单号不能直接作为审核事实
         CandidateOwner owner = new CandidateOwner(request.getUserId(), request.getConversationId());
+        R<TravelOrderReference> travelOrderResult = resolveTravelOrderReference(request);
+        if (!travelOrderResult.isSuccess()) {
+            return R.failed(travelOrderResult.getCode(), travelOrderResult.getMessage());
+        }
+
+        // 3. 按可信用户、会话和行程条件读取本次规划候选快照
         ItineraryCandidateSnapshot candidateSnapshot = loadCandidateSnapshot(request, owner);
-        // 3. 校验候选引用并应用明确排除项
+        // 4. 校验候选引用并应用明确排除项
         PreparationResult preparation = candidateSnapshot.prepareForPlanning(
                 request.getScores(), request.getExcludedCandidateIds());
         if (CollectionUtils.isNotEmpty(preparation.dataErrors())) {
@@ -74,7 +86,7 @@ public class ItineraryPlanApplicationService {
         }
         SelectedCandidates selectedCandidates = preparation.candidates();
 
-        // 4. 过滤无法参与客观计算的候选，不使用默认值掩盖时间或报价缺失
+        // 5. 过滤无法参与客观计算的候选，不使用默认值掩盖时间或报价缺失
         ConversionResult conversion = ItineraryPlanningCandidates.prepare(request, selectedCandidates);
         if (CollectionUtils.isNotEmpty(conversion.errors())) {
             return R.failed(ResultCode.INVALID_DATA.getCode(), String.join("；", conversion.errors()));
@@ -89,7 +101,7 @@ public class ItineraryPlanApplicationService {
                     planningCandidates.rejectedCandidates().size());
         }
 
-        // 5. 生成时间顺序有效的往返组合并计算客观费用、耗时指标
+        // 6. 生成时间顺序有效的往返组合并计算客观费用、耗时指标
         BuildResult buildResult = ItineraryPlanCombination.build(planningCandidates);
         if (CollectionUtils.isNotEmpty(buildResult.errors())) {
             return R.failed(ResultCode.INVALID_DATA.getCode(), String.join("；", buildResult.errors()));
@@ -98,8 +110,9 @@ public class ItineraryPlanApplicationService {
         log.info("ItineraryPlanApplicationService#plan: combinationCount={}, rejectedCombinationCount={}",
                 combinations.size(), buildResult.rejectedCombinationCount());
 
-        // 6. 计算政策、偏好和体验分，选择代表方案并保存完整结果
+        // 7. 计算政策、偏好和体验分，补充可信差旅单快照后保存完整结果
         ItineraryPlanningResult result = ItineraryPlanCalculation.calculate(request, combinations);
+        result.setSourceTravelOrder(travelOrderResult.getData());
         planRepository.save(owner, result);
         log.info("ItineraryPlanApplicationService#plan: planId={}, proposalCount={}", result.getPlanId(), result.getProposals().size());
         return R.success(result);
@@ -109,17 +122,46 @@ public class ItineraryPlanApplicationService {
      * 构造本次往返规划需要的五个候选分组，并一次性读取固定快照。
      */
     private ItineraryCandidateSnapshot loadCandidateSnapshot(ItineraryPlanRequest request, CandidateOwner owner) {
-        ItineraryCandidateGroups groups = new ItineraryCandidateGroups(
-                ItineraryCandidateScope.transport(owner, BookingType.FLIGHT,
-                        request.getOrigin(), request.getDestination(), request.getDepartureDate()),
-                ItineraryCandidateScope.transport(owner, BookingType.TRAIN,
-                        request.getOrigin(), request.getDestination(), request.getDepartureDate()),
-                ItineraryCandidateScope.transport(owner, BookingType.FLIGHT,
-                        request.getDestination(), request.getOrigin(), request.getReturnDate()),
-                ItineraryCandidateScope.transport(owner, BookingType.TRAIN,
-                        request.getDestination(), request.getOrigin(), request.getReturnDate()),
-                ItineraryCandidateScope.hotel(owner, request.getDestination(), request.getDepartureDate(),
-                        request.getReturnDate(), request.getAdultCount(), request.getChildAges()));
+        ItineraryCandidateGroups groups = ItineraryCandidateGroups.roundTrip(owner,
+                request.getOrigin(), request.getDestination(), request.getDepartureDate(),
+                request.getReturnDate(), request.getAdultCount(), request.getChildAges());
         return candidateRepository.loadSnapshot(groups);
     }
+
+    /**
+     * 按当前用户验证可选差旅单引用。模型只提供标识，服务端查询结果才是可信审核依据。
+     */
+    private R<TravelOrderReference> resolveTravelOrderReference(ItineraryPlanRequest request) {
+        if (StringUtils.isBlank(request.getTravelOrderId())) {
+            return R.success(null);
+        }
+
+        TravelOrder source = travelOrderDomainService.findByOrderIdAndUserId(
+                request.getTravelOrderId(), request.getUserId());
+        if (source == null) {
+            return R.failed(TripAgentResultCode.TRAVEL_ORDER_NOT_EXIST);
+        }
+        if (source.getStatus() == null || StringUtils.isAnyBlank(source.getOrderId(),
+                source.getDepartureCity(), source.getDestination(), source.getDepartureDate(),
+                source.getReturnDate())) {
+            return R.failed(ResultCode.INVALID_DATA.getCode(),
+                    "关联差旅单缺少单号、状态、城市或日期，无法建立可信规划关联");
+        }
+        try {
+            TravelOrderReference travelOrder = toTravelOrderReference(source);
+            if (travelOrder.returnDate().isBefore(travelOrder.departureDate())) {
+                return R.failed(ResultCode.INVALID_DATA.getCode(), "关联差旅单的出发日期不能晚于返回日期");
+            }
+            return R.success(travelOrder);
+        } catch (DateTimeParseException e) {
+            return R.failed(ResultCode.INVALID_DATA.getCode(), "关联差旅单的出发日期或返回日期无效");
+        }
+    }
+
+    private TravelOrderReference toTravelOrderReference(TravelOrder order) {
+        return new TravelOrderReference(order.getOrderId(), order.getApprovalId(), order.getStatus(),
+                StringUtils.trimToNull(order.getDepartureCity()), StringUtils.trimToNull(order.getDestination()),
+                LocalDate.parse(order.getDepartureDate()), LocalDate.parse(order.getReturnDate()));
+    }
+
 }
