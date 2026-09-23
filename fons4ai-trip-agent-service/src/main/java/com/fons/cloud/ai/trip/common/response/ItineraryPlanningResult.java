@@ -1,6 +1,7 @@
 package com.fons.cloud.ai.trip.common.response;
 
 import com.fons.cloud.ai.trip.common.constants.BookingType;
+import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -42,6 +43,12 @@ public class ItineraryPlanningResult {
      * 本次结果生成时间，包含明确的 UTC 偏移，不使用无时区的服务器时间。
      */
     private OffsetDateTime generatedAt;
+
+    /**
+     * 本次规划关联的可信差旅单快照。独立规划时为 null；存在时表示服务端已按当前用户验证归属，
+     * 不表示差旅单已经审批通过，审核仍需判断其状态及与规划内容的一致性。
+     */
+    private TravelOrderReference sourceTravelOrder;
 
     /**
      * 本次计算采用的明确行程信息，不保存“下周五”等未解析的相对日期。
@@ -94,6 +101,26 @@ public class ItineraryPlanningResult {
      * @param returnDate    返程出发日期，按目的地当地日历解释，不早于去程日期
      */
     public record TripRequest(String origin, String destination, LocalDate departureDate, LocalDate returnDate) {
+    }
+
+    /**
+     * 由服务端按可信用户读取的差旅单快照，供后续一致性审核使用。
+     *
+     * @param orderId 差旅单号
+     * @param approvalId 关联审批实例标识，未发起审批时为 null
+     * @param status 规划生成时的差旅单状态
+     * @param origin 差旅单出发城市
+     * @param destination 差旅单目的城市
+     * @param departureDate 差旅单出发日期
+     * @param returnDate 差旅单返回日期
+     */
+    public record TravelOrderReference(String orderId,
+                                       String approvalId,
+                                       TravelOrderStatus status,
+                                       String origin,
+                                       String destination,
+                                       LocalDate departureDate,
+                                       LocalDate returnDate) {
     }
 
     /**
@@ -176,6 +203,7 @@ public class ItineraryPlanningResult {
      *
      * @param candidateId             候选池中的稳定 ID，标识具体酒店及报价选项
      * @param name                    酒店名称
+     * @param city                    酒店所在城市
      * @param brand                   品牌，未知时为 null
      * @param starRating              明确的酒店星级，未知时为 null，不把未识别的档次默认成三星
      * @param roomType                房型，未知时为 null
@@ -190,6 +218,7 @@ public class ItineraryPlanningResult {
     public record HotelOption(
             String candidateId,
             String name,
+            String city,
             String brand,
             Integer starRating,
             String roomType,

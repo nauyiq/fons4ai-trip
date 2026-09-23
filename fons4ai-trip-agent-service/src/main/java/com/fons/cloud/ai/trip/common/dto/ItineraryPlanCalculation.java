@@ -203,25 +203,9 @@ public final class ItineraryPlanCalculation {
             warnings.add(direction + label + "缺失，无法判断是否符合政策");
             return;
         }
-        if (!isCabinCompliant(candidate.type(), candidate.cabinClass(), allowed)) {
+        if (!TravelCabinClass.isCompliant(candidate.type(), candidate.cabinClass(), allowed)) {
             warnings.add(direction + label + "超出政策允许范围：" + allowed);
         }
-    }
-
-    private static boolean isCabinCompliant(BookingType type, String actual, String allowedSpec) {
-        TravelCabinClass actualClass = TravelCabinClass.of(type, actual);
-        for (String item : allowedSpec.replace('，', ',').replace('/', ',').split(",")) {
-            String allowed = item.trim();
-            if (allowed.isEmpty()) {
-                continue;
-            }
-            TravelCabinClass allowedClass = TravelCabinClass.of(type, allowed);
-            if ((actualClass != null && actualClass.isNoHigherThan(allowedClass))
-                    || actual.trim().equalsIgnoreCase(allowed)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static ExperienceResult evaluateExperience(String weatherSummary,
@@ -429,7 +413,8 @@ public final class ItineraryPlanCalculation {
     }
 
     private static HotelOption hotelOption(HotelCandidate candidate) {
-        return new HotelOption(candidate.candidateId(), candidate.name(), candidate.brand(), candidate.starRating(),
+        return new HotelOption(candidate.candidateId(), candidate.name(), candidate.city(),
+                candidate.brand(), candidate.starRating(),
                 candidate.roomType(), candidate.checkInDate(), candidate.checkOutDate(), candidate.nights(),
                 candidate.price().amount(), candidate.distanceKm(), candidate.breakfastIncluded(),
                 candidate.cancelPolicy());

@@ -50,6 +50,31 @@ public enum TravelCabinClass {
         return null;
     }
 
+    /**
+     * 判断实际舱位或席别是否符合政策允许范围。
+     * 政策支持中文逗号、英文逗号或斜杠分隔；无法识别的名称仅允许忽略大小写的精确匹配。
+     */
+    public static boolean isCompliant(BookingType bookingType, String actual, String allowedSpec) {
+        if (bookingType == null || actual == null || actual.isBlank()
+                || allowedSpec == null || allowedSpec.isBlank()) {
+            return false;
+        }
+        String normalized = actual.trim();
+        TravelCabinClass actualClass = of(bookingType, normalized);
+        for (String item : allowedSpec.replace('，', ',').replace('/', ',').split(",")) {
+            String allowed = item.trim();
+            if (allowed.isEmpty()) {
+                continue;
+            }
+            TravelCabinClass allowedClass = of(bookingType, allowed);
+            if ((actualClass != null && actualClass.isNoHigherThan(allowedClass))
+                    || normalized.equalsIgnoreCase(allowed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 实际等级不高于政策允许等级时返回 true。 */
     public boolean isNoHigherThan(TravelCabinClass allowed) {
         return allowed != null && bookingType == allowed.bookingType && rank <= allowed.rank;
