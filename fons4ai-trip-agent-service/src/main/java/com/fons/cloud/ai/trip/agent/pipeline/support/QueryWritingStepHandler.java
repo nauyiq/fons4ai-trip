@@ -142,8 +142,7 @@ public class QueryWritingStepHandler extends AbstractAgentExecuteHandler {
 
     private List<Msg> buildRewriteInput(AgentRequest input) {
         // 本轮消息已先入库，按 runId 排除后只取之前的历史；本轮原始输入最后追加。
-        List<ChatMessage> history = chatMessageDomainService.findRecentMessages(
-                input.getConversationId(), input.getRunId(), RECENT_MESSAGE_LIMIT);
+        List<ChatMessage> history = chatMessageDomainService.findRecentMessages(input.getConversationId(), input.getRunId(), RECENT_MESSAGE_LIMIT);
         List<Msg> messages = new ArrayList<>(history.size() + 1);
         for (ChatMessage message : history) {
             ChatRole role = message.getRole();

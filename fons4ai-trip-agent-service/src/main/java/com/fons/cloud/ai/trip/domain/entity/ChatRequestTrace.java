@@ -1,10 +1,10 @@
 package com.fons.cloud.ai.trip.domain.entity;
 
-import cn.hutool.core.util.IdUtil;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fons.cloud.ai.trip.common.constants.TaskState;
+import com.fons.cloud.ai.trip.infrastructure.util.IdGenerator;
 import lombok.*;
 
 /**
@@ -23,12 +23,10 @@ import lombok.*;
 @TableName("chat_request_trace")
 public class ChatRequestTrace {
 
-    @TableId(type = IdType.AUTO)
-    private Long traceId;
-
     /**
      * 本次请求的runId
      */
+    @TableId(type = IdType.INPUT)
     private String runId;
 
     /**
@@ -64,10 +62,12 @@ public class ChatRequestTrace {
                 .build();
     }
 
-
     public static String generateRunId() {
-        return "run_" + IdUtil.fastSimpleUUID();
+        return IdGenerator.next(IdGenerator.Prefix.TRACE);
     }
 
+    public String getTaskId() {
+        return "TRIP-WORKER:" + getConversationId();
+    }
 
 }

@@ -19,11 +19,12 @@ import java.util.Locale;
 /**
  * 将一次管道Run的过程事件和权威收口结果适配为应用层聊天流。
  *
- * <p>原有Agent事件保持原样；事件通道结束后读取同一个Run的completion，追加一条
+ * <p>流开始时先发送包含conversationId的{@code conversation_ready}事件，
+ * 原有Agent事件保持原样；事件通道结束后读取同一个Run的completion，追加一条
  * {@code run_ended}事件。两次订阅的是同一个Run的不同通道，不会再次执行管道。
  * 结果处理器先于completion运行，因此该事件也表示本轮后置处理已经返回。</p>
  *
- * <p>终态事件的data包含pipelineRunId、可用时的agentRunId、state和nextAction。
+ * <p>终态事件的data包含conversationId、pipelineRunId、可用时的agentRunId、state和nextAction。
  * nextAction取值为none、input_required或approval；INPUT_REQUIRED对应的state仍为completed，
  * 结构化交互信息放在humanInTheLoopInfos中，不表示审批暂停。</p>
  */
@@ -31,25 +32,35 @@ import java.util.Locale;
 @Component
 public class ChatStreamOutputAdapter {
 
-    public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run) {
-        return Flux.defer(() -> run.events()
-                // 过程事件不是权威终态；即使过程通道失败，也要读取completion。
-                .onErrorResume(error -> {
-                    log.warn("聊天过程事件通道异常，等待管道最终结果，pipelineRunId:{}", run.runId(), error);
-                    return Flux.empty();
-                })
+    public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
+                              String conversationId) {
+        return Flux.defer(() -> Flux.just(conversationReadyEvent(conversationId, run.runId()))
+                .concatWith(run.events()
+                        // 过程事件不是权威终态；即使过程通道失败，也要读取completion。
+                        .onErrorResume(error -> {
+                            log.warn("聊天过程事件通道异常，等待管道最终结果，pipelineRunId:{}", run.runId(), error);
+                            return Flux.empty();
+                        }))
                 .concatWith(run.completion()
-                        .map(this::completedEvent)
+                        .map(result -> completedEvent(result, conversationId))
                         .onErrorResume(error -> {
                             log.warn("聊天管道未形成最终结果，pipelineRunId:{}", run.runId(), error);
-                            return Mono.just(unresolvedEvent(run.runId(), run.state()));
+                            return Mono.just(unresolvedEvent(run.runId(), run.state(), conversationId));
                         })));
     }
 
-    private String completedEvent(AgentExecutePipeline.PipelineResult result) {
+    private static String conversationReadyEvent(String conversationId, String pipelineRunId) {
+        JSONObject data = new JSONObject();
+        data.put("conversationId", conversationId);
+        data.put("pipelineRunId", pipelineRunId);
+        return event("conversation_ready", data);
+    }
+
+    private String completedEvent(AgentExecutePipeline.PipelineResult result, String conversationId) {
         AgentRunResult master = result.masterAgentResult();
         List<HumanInTheLoopInfo> interactions = master.getHumanInTheLoopInfos();
         JSONObject data = new JSONObject();
+        data.put("conversationId", conversationId);
         data.put("pipelineRunId", result.pipelineRunId());
         data.put("agentRunId", master.getRunId());
         data.put("state", master.getState().name().toLowerCase(Locale.ROOT));
@@ -80,8 +91,10 @@ public class ChatStreamOutputAdapter {
         return "none";
     }
 
-    private static String unresolvedEvent(String pipelineRunId, ReactiveTaskState taskState) {
+    private static String unresolvedEvent(String pipelineRunId, ReactiveTaskState taskState,
+                                          String conversationId) {
         JSONObject data = new JSONObject();
+        data.put("conversationId", conversationId);
         data.put("pipelineRunId", pipelineRunId);
         boolean cancelled = taskState == ReactiveTaskState.CANCELLED;
         data.put("state", cancelled ? "cancelled" : "failed");

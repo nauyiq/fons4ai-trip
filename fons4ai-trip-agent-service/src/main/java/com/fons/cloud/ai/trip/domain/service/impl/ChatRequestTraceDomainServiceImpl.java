@@ -15,9 +15,9 @@ import org.springframework.stereotype.Service;
 public class ChatRequestTraceDomainServiceImpl extends ServiceImpl<ChatRequestTraceMapper, ChatRequestTrace> implements ChatRequestTraceDomainService {
 
     @Override
-    public boolean updateState(Long traceId, TaskState state) {
+    public boolean updateState(String runId, TaskState state) {
         return update(Wrappers.lambdaUpdate(ChatRequestTrace.class)
-                .eq(ChatRequestTrace::getTraceId, traceId)
+                .eq(ChatRequestTrace::getRunId, runId)
                 .set(ChatRequestTrace::getState, state));
     }
 }

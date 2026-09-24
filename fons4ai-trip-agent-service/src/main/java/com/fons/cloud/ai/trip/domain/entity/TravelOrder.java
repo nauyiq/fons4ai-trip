@@ -78,7 +78,7 @@ public class TravelOrder extends BaseEntity {
 
     public static TravelOrder create(TravelOrderCreateRequest request) {
         return TravelOrder.builder()
-                .orderId(IdGenerator.next("OD_"))
+                .orderId(IdGenerator.next(IdGenerator.Prefix.ORDER))
                 .userId(request.getUserId())
                 .destination(request.getDestination())
                 .departureCity(request.getDepartureCity())

@@ -50,4 +50,8 @@ public class ChatMessageAggregate {
         trace.setState(state);
         return this;
     }
+
+    public String getConversationId() {
+        return conversation.getConversationId();
+    }
 }

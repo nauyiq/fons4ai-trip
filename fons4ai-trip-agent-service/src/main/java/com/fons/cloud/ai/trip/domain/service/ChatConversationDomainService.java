@@ -16,4 +16,11 @@ public interface ChatConversationDomainService extends IService<ChatConversation
      */
     ChatConversation findByUseIdAndConversationId(String useId, String conversationId);
 
+    /**
+     * 更新conversation中的activeRunId
+     * @param conversationId
+     * @param runId
+     * @return
+     */
+    boolean updateActiveRunId(String conversationId, String runId);
 }

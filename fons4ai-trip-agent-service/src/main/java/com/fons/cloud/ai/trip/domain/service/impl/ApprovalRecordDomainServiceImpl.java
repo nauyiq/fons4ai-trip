@@ -24,7 +24,7 @@ public class ApprovalRecordDomainServiceImpl extends ServiceImpl<ApprovalRecordM
     @Override
     public ApprovalRecord submit(TravelOrder order) {
         ApprovalRecord record = ApprovalRecord.builder()
-                .processInstanceId(IdGenerator.next("AP_"))
+                .processInstanceId(IdGenerator.next(IdGenerator.Prefix.APPROVAL))
                 .userId(order.getUserId())
                 .orderId(order.getOrderId())
                 .title(order.getPurpose())

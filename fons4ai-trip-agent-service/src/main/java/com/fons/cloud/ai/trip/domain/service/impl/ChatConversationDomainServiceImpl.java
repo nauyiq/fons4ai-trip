@@ -19,4 +19,11 @@ public class ChatConversationDomainServiceImpl extends ServiceImpl<ChatConversat
                 .eq(ChatConversation::getUserId, useId)
                 .eq(ChatConversation::getConversationId, conversationId));
     }
+
+    @Override
+    public boolean updateActiveRunId(String conversationId, String runId) {
+        return update(Wrappers.lambdaUpdate(ChatConversation.class)
+                .eq(ChatConversation::getConversationId, conversationId)
+                .set(ChatConversation::getActiveRunId, runId));
+    }
 }

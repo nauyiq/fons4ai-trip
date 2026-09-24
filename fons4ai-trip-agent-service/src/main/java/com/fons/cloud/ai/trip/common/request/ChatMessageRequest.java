@@ -4,9 +4,7 @@ import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
 import com.fons.cloud.common.request.BaseRequest;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.ToString;
+import lombok.*;
 
 /**
  * @author hongqy
@@ -14,6 +12,9 @@ import lombok.ToString;
 @Getter
 @Setter
 @ToString
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ChatMessageRequest extends BaseRequest {
 
     /**

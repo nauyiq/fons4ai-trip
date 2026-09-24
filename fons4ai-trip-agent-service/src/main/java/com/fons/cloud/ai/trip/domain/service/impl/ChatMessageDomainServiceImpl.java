@@ -2,6 +2,7 @@ package com.fons.cloud.ai.trip.domain.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fons.cloud.ai.trip.common.constants.ChatRole;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.mapper.ChatMessageMapper;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
@@ -19,11 +20,6 @@ import java.util.List;
 public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage> implements ChatMessageDomainService {
 
     @Override
-    public List<ChatMessage> findRecentMessages(String conversationId, int limit) {
-        return findRecentMessages(conversationId, null, limit);
-    }
-
-    @Override
     public List<ChatMessage> findRecentMessages(String conversationId, String excludedRunId, int limit) {
         if (limit <= 0) {
             return List.of();
@@ -35,5 +31,15 @@ public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper,
                 .last("LIMIT " + limit)));
         Collections.reverse(recent);
         return recent;
+    }
+
+    @Override
+    public ChatMessage findHitlMessages(String conversationId, String runId, String hitlId) {
+        return getOne(Wrappers.<ChatMessage>lambdaQuery()
+                .eq(ChatMessage::getConversationId, conversationId)
+                .eq(ChatMessage::getRunId, runId)
+                .eq(ChatMessage::getRole, ChatRole.AGENT_HITL)
+                .eq(ChatMessage::getContent, hitlId)
+        );
     }
 }

@@ -10,15 +10,18 @@ import java.util.List;
  */
 public interface ChatMessageDomainService extends IService<ChatMessage> {
 
-    /**
-     * 查询某会话下最近 N 条消息（按时间正序返回）。
-     * @param conversationId
-     * @param limit
-     * @return
-     */
-    List<ChatMessage> findRecentMessages(String conversationId, int limit);
 
-    /** 查询本轮请求之前的最近 N 条消息，返回顺序仍为时间正序。 */
+    /**
+     * 查询本轮请求之前的最近 N 条消息，返回顺序仍为时间正序。
+     */
     List<ChatMessage> findRecentMessages(String conversationId, String excludedRunId, int limit);
 
+    /**
+     * 获取人工审批消息
+     * @param conversationId
+     * @param runId
+     * @param hitlId
+     * @return
+     */
+    ChatMessage findHitlMessages(String conversationId, String runId, String hitlId);
 }

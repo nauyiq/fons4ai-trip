@@ -2,22 +2,20 @@ package com.fons.cloud.ai.trip.common.request;
 
 import com.fons.cloud.common.request.BaseRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 import java.util.List;
 
 /**
+ * 发起流式会话请求
  * @author hongqy
  */
 @Getter
 @Setter
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ChatRequest extends BaseRequest {
+public class ConversationStreamRequest extends BaseRequest {
 
     /**
      * 用户ID
@@ -27,13 +25,7 @@ public class ChatRequest extends BaseRequest {
     /**
      * 会话ID
      */
-    @NotBlank(message = "会话Id不能为空")
-    private String sessionId;
-
-    /**
-     * 是否中断请求
-     */
-    private boolean interrupt = false;
+    private String conversationId;
 
     /**
      * 消息列表
