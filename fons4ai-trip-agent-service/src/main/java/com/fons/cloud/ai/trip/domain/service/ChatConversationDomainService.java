@@ -17,10 +17,15 @@ public interface ChatConversationDomainService extends IService<ChatConversation
     ChatConversation findByUseIdAndConversationId(String useId, String conversationId);
 
     /**
-     * 更新conversation中的activeRunId
+     * 将 Pipeline 运行 ID 写入 conversation.activeRunId
      * @param conversationId
-     * @param runId
+     * @param pipelineRunId
      * @return
      */
-    boolean updateActiveRunId(String conversationId, String runId);
+    boolean updateActiveRunId(String conversationId, String pipelineRunId);
+
+    /**
+     * 只清理仍属于指定 Pipeline 运行的活跃 ID，避免旧运行收尾覆盖新运行。
+     */
+    boolean clearActiveRunIdIfMatch(String conversationId, String pipelineRunId);
 }

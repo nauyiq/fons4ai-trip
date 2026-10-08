@@ -34,12 +34,11 @@ public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper,
     }
 
     @Override
-    public ChatMessage findHitlMessages(String conversationId, String runId, String hitlId) {
+    public ChatMessage findHitlMessage(String conversationId, String messageId) {
         return getOne(Wrappers.<ChatMessage>lambdaQuery()
                 .eq(ChatMessage::getConversationId, conversationId)
-                .eq(ChatMessage::getRunId, runId)
+                .eq(ChatMessage::getMessageId, messageId)
                 .eq(ChatMessage::getRole, ChatRole.AGENT_HITL)
-                .eq(ChatMessage::getContent, hitlId)
         );
     }
 }

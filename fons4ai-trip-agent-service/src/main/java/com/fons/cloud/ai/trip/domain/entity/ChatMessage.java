@@ -20,6 +20,7 @@ import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
 import lombok.*;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -183,12 +184,12 @@ public class ChatMessage extends BaseEntity {
     }
 
 
-
     /**
      * 根据Agent运行结果创建多条信息补充消息
      * <pre>
      *     审批消息只处理类型为INPUT_REQUIRED
      * </pre>
+     *
      * @param result
      * @return
      */
@@ -217,6 +218,7 @@ public class ChatMessage extends BaseEntity {
      * <pre>
      *     审批消息只处理类型为APPROVAL
      * </pre>
+     *
      * @param result
      * @return
      */
@@ -231,8 +233,7 @@ public class ChatMessage extends BaseEntity {
                 .conversationId(result.getConversationId())
                 .agentName(hitl.getSourceAgent())
                 .role(ChatRole.AGENT_HITL)
-                .content(hitl.getId())
-                .extra(JSON.toJSONString(hitl.getData()))
+                .content(StringUtils.defaultIfBlank(hitl.getQuestion(), "Agent 即将执行以下操作，请确认"))
                 .thinking(completeInfo == null ? "" : completeInfo.getThinking())
                 .type(ChatMessageContentType.TEXT)
                 .deleted(false).build()).toList();

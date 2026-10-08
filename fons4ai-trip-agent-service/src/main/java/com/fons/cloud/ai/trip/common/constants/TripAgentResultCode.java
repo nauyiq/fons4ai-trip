@@ -23,6 +23,9 @@ public enum TripAgentResultCode implements Result {
     APPROVAL_RECORD_NOT_EXIST("TA100008", "审批记录不存在"),
     TRAVEL_ORDER_NOT_EXIST("TA100009", "差旅单不存在"),
     CONVERSATION_NOT_EXIST("TA100010", "会话不存在"),
+    HITL_MESSAGE_NOT_EXIST("TA100011", "人工审批消息不存在或不属于当前会话"),
+    HITL_MESSAGE_ALREADY_USED("TA100012", "人工审批消息已提交，不能重复回复"),
+    HITL_EDIT_PARAMS_REQUIRED("TA100013", "编辑审批必须提供修改后的参数"),
 
     TRAVEL_ORDER_STATUS_NOT_EXPECTED("TA200001", "差旅单状态不符合预期"),
     TRAVEL_ORDER_STATUS_NOT_SUPPORT_CANCEL("TA200002", "差旅单状态不支持取消"),

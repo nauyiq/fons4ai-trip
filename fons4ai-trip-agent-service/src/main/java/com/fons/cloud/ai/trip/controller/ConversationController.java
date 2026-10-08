@@ -66,9 +66,7 @@ public class ConversationController {
     /**
      * 回复对话， 用户对于HITL消息类型的回复
      * <p>
-     *     1. 当前接口设计为 回复{@link HumanInTheLoopKind#APPROVAL} 的HITL请求。
-     *     2. 如果用户回复的是{@link HumanInTheLoopKind#INPUT_REQUIRED}， 内部会降级发起普通消息的请求，
-     *   并把{@link ConversationReplayRequest#getAction()} 原值传给LLM
+     *     当前接口设计为 回复{@link HumanInTheLoopKind#APPROVAL} 的HITL请求。
      * </p>
      * @param request
      * @return

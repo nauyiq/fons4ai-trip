@@ -29,14 +29,9 @@ public class ConversationReplayRequest extends BaseRequest {
     private String conversationId;
 
 
-    @NotEmpty(message = "人工审批Id不能为空")
-    private String hitlId;
-
-    /**
-     * 原始的runId
-     */
-    @NotEmpty(message = "原始中断恢复的runId不能为空")
-    private String originRunId;
+    /** 审批消息ID；服务端通过它读取可信的HITL恢复信息。 */
+    @NotEmpty(message = "审批消息Id不能为空")
+    private String messageId;
 
     /**
      * 人工审批的动作

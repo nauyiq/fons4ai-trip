@@ -1,5 +1,6 @@
 -- GoGo 差旅助手数据库初始化脚本
 -- 请在 MySQL 中先执行 CREATE DATABASE gogo_travel DEFAULT CHARACTER SET utf8mb4;
+-- 本脚本用于新库初始化；CREATE TABLE IF NOT EXISTS 不会变更已有表，存量库需单独执行迁移。
 
 CREATE TABLE IF NOT EXISTS agentscope_session (
     session_id VARCHAR(255) NOT NULL,
@@ -27,7 +28,6 @@ CREATE TABLE IF NOT EXISTS `travel_order` (
     `created`     DATETIME     DEFAULT NULL COMMENT '创建时间',
     `updated`     DATETIME     DEFAULT NULL COMMENT '最后修改时间',
     PRIMARY KEY (`order_id`),
-    KEY `idx_user_id` (`user_id`),
     KEY `idx_user_status` (`user_id`, `status`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '差旅申请单';
 
@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS `approval_record` (
     `order_id`            VARCHAR(64)   DEFAULT NULL COMMENT '关联差旅单ID',
     PRIMARY KEY (`process_instance_id`),
     KEY `idx_user_id` (`user_id`),
-    KEY `idx_order_id` (`order_id`),
     KEY `idx_order_submit` (`order_id`, `created`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '差旅审批记录';
 
@@ -66,7 +65,7 @@ CREATE TABLE IF NOT EXISTS `user_profile` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '用户档案';
 
 
-CREATE TABLE IF NOT EXISTS `user_account` (
+CREATE TABLE IF NOT EXISTS `user` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '自增主键',
     `user_id`      VARCHAR(64)  NOT NULL COMMENT '关联 user_profile.user_id',
     `username`     VARCHAR(64)  NOT NULL COMMENT '登录账号',
@@ -109,33 +108,60 @@ CREATE TABLE IF NOT EXISTS `travel_policy_rule` (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `chat_conversation` (
-    `conversation_id` VARCHAR(64)  NOT NULL COMMENT '会话ID（同前端 sessionId）',
+    `conversation_id` VARCHAR(64)  NOT NULL COMMENT '会话ID',
     `user_id`         VARCHAR(64)  NOT NULL COMMENT '用户ID',
-    `title`           VARCHAR(256) NOT NULL DEFAULT '新对话' COMMENT '会话标题',
-    `created`      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `updated`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
+    `title`           VARCHAR(256) NOT NULL DEFAULT '新会话' COMMENT '会话标题',
+    `active_run_id`   VARCHAR(64)  DEFAULT NULL COMMENT '当前Pipeline运行ID，用于中断运行；不同于请求Trace run_id',
+    `created`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
     `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
     PRIMARY KEY (`conversation_id`),
-    KEY `idx_user_id` (`user_id`),
-    KEY `idx_updated_at` (`updated_at`)
+    KEY `idx_user_updated` (`user_id`, `updated`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '对话会话';
+
+CREATE TABLE IF NOT EXISTS `chat_request_trace` (
+    `run_id`          VARCHAR(64)  NOT NULL COMMENT '请求Trace ID，关联chat_message.run_id',
+    `conversation_id` VARCHAR(64)  NOT NULL COMMENT '会话ID',
+    `used_token`      BIGINT       DEFAULT NULL COMMENT '本次请求消耗的Token数',
+    `analysis_content` LONGTEXT   DEFAULT NULL COMMENT '问题改写和意图识别结果JSON',
+    `used_tools`      TEXT         DEFAULT NULL COMMENT '调用的工具名称，逗号分隔',
+    `state`           VARCHAR(32)  NOT NULL DEFAULT 'init' COMMENT '状态：init/process/failed/interrupt/waiting_approval/success',
+    PRIMARY KEY (`run_id`),
+    KEY `idx_conversation_id` (`conversation_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '每次聊天请求的执行轨迹';
 
 CREATE TABLE IF NOT EXISTS `chat_message` (
     `message_id`      VARCHAR(64)  NOT NULL COMMENT '消息ID',
     `conversation_id` VARCHAR(64)  NOT NULL COMMENT '会话ID',
-    `role`            VARCHAR(32)  NOT NULL COMMENT '角色：user/agent/system',
+    `run_id`          VARCHAR(64)  NOT NULL COMMENT '所属请求的Trace ID',
+    `role`            VARCHAR(32)  NOT NULL COMMENT '角色：user/user_resume/agent/agent_hitl/system',
     `content`         TEXT         DEFAULT NULL COMMENT '消息内容',
+    `thinking`        TEXT         DEFAULT NULL COMMENT '展示给用户的思考说明',
+    `type`            VARCHAR(16)  NOT NULL COMMENT '消息内容类型：TEXT/IMAGE/VOICE',
     `agent_name`      VARCHAR(128) DEFAULT NULL COMMENT 'Agent名称（role=agent 时）',
     `extra`           JSON         DEFAULT NULL COMMENT '扩展信息（进度快照/推荐问题等）',
     `feedback`        VARCHAR(16)  DEFAULT NULL COMMENT '用户反馈：LIKE 点赞 / DISLIKE 点踩 / NULL 未反馈',
     `feedback_at`     DATETIME     DEFAULT NULL COMMENT '反馈时间',
-    `created`         DATETIME      DEFAULT NULL COMMENT '创建时间',
-    `updated`         DATETIME      DEFAULT NULL COMMENT '最后更新时间',
+    `created`         DATETIME     DEFAULT NULL COMMENT '创建时间',
+    `updated`         DATETIME     DEFAULT NULL COMMENT '最后更新时间',
     `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
     PRIMARY KEY (`message_id`),
-    KEY `idx_conversation_id` (`conversation_id`),
-    KEY `idx_created_at` (`created_at`)
+    KEY `idx_conversation_created` (`conversation_id`, `created`, `message_id`),
+    KEY `idx_conversation_run_role` (`conversation_id`, `run_id`, `role`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '对话消息';
+
+CREATE TABLE IF NOT EXISTS `chat_message_hitl` (
+    `message_id`       VARCHAR(64)  NOT NULL COMMENT '关联chat_message.message_id，仅保存APPROVAL类型',
+    `hitl_id`          VARCHAR(128) NOT NULL COMMENT 'Agent返回的HITL ID',
+    `origin_run_id`    VARCHAR(64)  NOT NULL COMMENT '原始Agent运行ID',
+    `checkpoint_id`    VARCHAR(128) NOT NULL COMMENT 'Agent恢复检查点ID',
+    `status`           VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/RESUMING/CONSUMED',
+    `hitl_data`        JSON         DEFAULT NULL COMMENT '审批卡片展示数据',
+    `created`          DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`message_id`),
+    KEY `idx_hitl_id` (`hitl_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '审批消息HITL一对一扩展';
 
 -- ============================================================
 -- 已废弃：个人 API Key 存储，仅保留历史结构；企业搜索服务不再读写此表。
@@ -184,7 +210,6 @@ CREATE TABLE IF NOT EXISTS `booking_record` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_booking_id` (`booking_id`),
     UNIQUE KEY `uk_platform_order` (`platform`, `biz_type`, `external_order_no`),
-    KEY `idx_user_id` (`user_id`),
     KEY `idx_user_biz` (`user_id`, `biz_type`),
     KEY `idx_travel_order_id` (`travel_order_id`),
     KEY `idx_status` (`status`)
@@ -204,7 +229,7 @@ INSERT IGNORE INTO `user_profile` (`user_id`, `base_city`, `level`, `name_pinyin
     ('u004',  '深圳', 'P8', 'CHEN QI',     'chenqi@example.com',   '陈七', 0, '13800000005', 'M');
 
 -- 2. 登录账号（密码明文 123456，仅限本地开发；生产环境请替换为 BCrypt 哈希）
-INSERT IGNORE INTO `user_account` (`user_id`, `username`, `password`, `real_name`, `role`) VALUES
+INSERT IGNORE INTO `user` (`user_id`, `username`, `password`, `real_name`, `role`) VALUES
     ('u_001', 'admin',   '123456', '系统管理员', 'ADMIN'),
     ('u001',  'alice',   '123456', '张三',     'USER'),
     ('u002',  'bob',     '123456', '李四',     'USER'),
@@ -236,7 +261,7 @@ VALUES
 
 -- 4. 差旅申请单示例（覆盖 DRAFT / SUBMITTED / APPROVED 三种典型状态）
 INSERT IGNORE INTO `travel_order`
-    (`order_id`, `user_id`, `destination`, `departure_city`, `departure_date`, `return_date`, `purpose`, `status`, `approval_id`, `created_at`, `updated_at`)
+    (`order_id`, `user_id`, `destination`, `departure_city`, `departure_date`, `return_date`, `purpose`, `status`, `approval_id`, `created`, `updated`)
 VALUES
     ('to_20260701_001', 'u001', '上海', '北京', '2026-07-10', '2026-07-12', '客户拜访',   'APPROVED',  'ap_20260701_001', '2026-07-01 10:00:00', '2026-07-02 09:00:00'),
     ('to_20260710_002', 'u001', '深圳', '北京', '2026-07-20', '2026-07-22', '产品交流会', 'SUBMITTED', 'ap_20260710_002', '2026-07-10 14:30:00', '2026-07-10 14:30:00'),
@@ -244,7 +269,7 @@ VALUES
 
 -- 5. 审批记录示例（关联上面的差旅单）
 INSERT IGNORE INTO `approval_record`
-    (`process_instance_id`, `user_id`, `title`, `status`, `approval_form`, `remark`, `submit_time`, `update_time`, `order_id`)
+    (`process_instance_id`, `user_id`, `title`, `status`, `approval_form`, `remark`, `created`, `updated`, `order_id`)
 VALUES
     ('ap_20260701_001', 'u001', '张三-北京→上海-2026/07/10~07/12', 'APPROVED', '{"destination":"上海","budget":3000}', '预算合理，同意', '2026-07-01 10:05:00', '2026-07-02 09:00:00', 'to_20260701_001'),
     ('ap_20260710_002', 'u001', '张三-北京→深圳-2026/07/20~07/22', 'PENDING',  '{"destination":"深圳","budget":4500}', NULL,             '2026-07-10 14:35:00', '2026-07-10 14:35:00', 'to_20260710_002');

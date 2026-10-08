@@ -21,9 +21,17 @@ public class ChatConversationDomainServiceImpl extends ServiceImpl<ChatConversat
     }
 
     @Override
-    public boolean updateActiveRunId(String conversationId, String runId) {
+    public boolean updateActiveRunId(String conversationId, String pipelineRunId) {
         return update(Wrappers.lambdaUpdate(ChatConversation.class)
                 .eq(ChatConversation::getConversationId, conversationId)
-                .set(ChatConversation::getActiveRunId, runId));
+                .set(ChatConversation::getActiveRunId, pipelineRunId));
+    }
+
+    @Override
+    public boolean clearActiveRunIdIfMatch(String conversationId, String pipelineRunId) {
+        return update(Wrappers.lambdaUpdate(ChatConversation.class)
+                .eq(ChatConversation::getConversationId, conversationId)
+                .eq(ChatConversation::getActiveRunId, pipelineRunId)
+                .set(ChatConversation::getActiveRunId, null));
     }
 }
