@@ -1,6 +1,5 @@
 package com.fons.cloud.ai.trip.application.itinerary;
 
-import com.alibaba.fastjson2.JSON;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateGroups;
@@ -45,6 +44,7 @@ public class ItineraryPlanApplicationService {
     private final ItineraryCandidateRepository candidateRepository;
     private final ItineraryPlanRepository planRepository;
     private final TravelOrderDomainService travelOrderDomainService;
+    private final ItineraryRepairCycleService repairCycleService;
 
     /**
      * 生成并保存一次单目的城市往返行程规划结果。
@@ -52,19 +52,26 @@ public class ItineraryPlanApplicationService {
      * 不接收调用方提交的候选明细；差旅政策应由可信工具适配层查询后写入请求。
      *
      * @param request 行程规划请求，包含可信身份、明确行程条件、真实政策、偏好评分及排除项
+     * @param runId 运行时提供的本轮标识，用于区分修复与下一轮新任务
      * @return 完整结构化规划结果；包含实际输入快照、计算指标、代表方案和风险信息
      */
-    public R<ItineraryPlanningResult> plan(ItineraryPlanRequest request) {
+    public R<ItineraryPlanningResult> plan(ItineraryPlanRequest request, String runId) {
         // 1. 校验参数
         if (request == null) {
             return R.failed(ResultCode.PARAMS_ERROR.getCode(), "行程规划请求不能为空");
         }
-        List<String> validate = request.normalizeAndValidate();
-        if (CollectionUtils.isNotEmpty(validate)) {
-            return R.failed(ResultCode.PARAMS_ERROR.getCode(), String.join("；", validate));
+        List<String> validationErrors = request.normalizeAndValidate();
+        if (CollectionUtils.isNotEmpty(validationErrors)) {
+            return R.failed(ResultCode.PARAMS_ERROR.getCode(), String.join("；", validationErrors));
         }
+        repairCycleService.beforePlan(new CandidateOwner(request.getUserId(), request.getConversationId()),
+                request, runId);
 
-        log.info("ItineraryPlanApplicationService#plan: request={}", JSON.toJSONString(request));
+        log.info("ItineraryPlanApplicationService#plan: userId={}, conversationId={}, origin={}, "
+                        + "destination={}, departureDate={}, returnDate={}, travelOrderLinked={}",
+                request.getUserId(), request.getConversationId(), request.getOrigin(),
+                request.getDestination(), request.getDepartureDate(), request.getReturnDate(),
+                request.getTravelOrderId() != null);
 
         // 2. 验证可选差旅单关联，模型提供的单号不能直接作为审核事实
         CandidateOwner owner = new CandidateOwner(request.getUserId(), request.getConversationId());
@@ -114,6 +121,8 @@ public class ItineraryPlanApplicationService {
         ItineraryPlanningResult result = ItineraryPlanCalculation.calculate(request, combinations);
         result.setSourceTravelOrder(travelOrderResult.getData());
         planRepository.save(owner, result);
+        // 8. 规划保存成功后更新修复次数，失败的计算或保存不消耗修复机会
+        repairCycleService.afterPlan(owner, request, runId, result);
         log.info("ItineraryPlanApplicationService#plan: planId={}, proposalCount={}", result.getPlanId(), result.getProposals().size());
         return R.success(result);
     }

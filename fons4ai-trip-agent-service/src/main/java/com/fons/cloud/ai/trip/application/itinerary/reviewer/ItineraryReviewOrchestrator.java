@@ -1,15 +1,16 @@
 package com.fons.cloud.ai.trip.application.itinerary.reviewer;
 
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimensionStatus;
-import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReviewResult;
+import com.fons.cloud.ai.trip.common.dto.ItineraryDimensionReviewResult;
+import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
+import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReview;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.DimensionReview;
+import com.fons.cloud.common.base.exception.SystemIntervalException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * 行程规划审核编排器。
@@ -25,32 +26,16 @@ public final class ItineraryReviewOrchestrator {
     private final ItineraryReviewArbitrator arbitrator;
 
     /**
-     * 创建当前第一阶段的客观审核编排器。
-     */
-    public ItineraryReviewOrchestrator() {
-        this(ItineraryReviewRuleSet.objectiveV1());
-    }
-
-    /**
-     * 使用明确规则集创建编排器，便于后续增加主观评估适配器且不丢失完整性约束。
+     * 使用明确规则集创建编排器，便于验证必需维度与审核器一致。
      *
      * @param ruleSet 审核规则集
      */
     public ItineraryReviewOrchestrator(ItineraryReviewRuleSet ruleSet) {
-        this.ruleSet = Objects.requireNonNull(ruleSet, "审核规则集不能为空");
-        this.arbitrator = new ItineraryReviewArbitrator(
-                ruleSet.version(), ruleSet.requiredDimensions());
-    }
-
-    /**
-     * 执行当前规则集中的全部审核维度，并形成统一审核结果。
-     * 该便捷入口仅适用于未关联差旅单的独立规划；关联差旅单时应使用带审核上下文的重载方法。
-     *
-     * @param planningResult 已保存的不可变规划结果
-     * @return 完整审核结果
-     */
-    public ItineraryReviewResult review(ItineraryPlanningResult planningResult) {
-        return review(planningResult, ItineraryReviewContext.now(null));
+        if (ruleSet == null) {
+            throw SystemIntervalException.of("审核规则集不能为空");
+        }
+        this.ruleSet = ruleSet;
+        this.arbitrator = new ItineraryReviewArbitrator(ruleSet.requiredDimensions());
     }
 
     /**
@@ -58,13 +43,18 @@ public final class ItineraryReviewOrchestrator {
      */
     public ItineraryReviewResult review(ItineraryPlanningResult planningResult,
                                         ItineraryReviewContext context) {
-        Objects.requireNonNull(context, "审核上下文不能为空");
-        if (planningResult == null || StringUtils.isBlank(planningResult.getPlanId())) {
-            throw new IllegalArgumentException("被审核的规划结果及planId不能为空");
+        // 1. 确认规划标识与本轮可信审核上下文均可用
+        if (context == null) {
+            throw SystemIntervalException.of("审核上下文不能为空");
         }
+        if (planningResult == null || StringUtils.isBlank(planningResult.getPlanId())) {
+            throw SystemIntervalException.of("被审核的规划结果及planId不能为空");
+        }
+        // 2. 按规则集逐一执行维度审核，将单个审核器失败记录为该维度失败
         List<ItineraryDimensionReviewResult> dimensionResults = ruleSet.reviewers().stream()
                 .map(reviewer -> safeReview(reviewer, planningResult, context))
                 .toList();
+        // 3. 汇总维度结果，计算方案结论、推荐及下一步动作
         return arbitrator.arbitrate(planningResult, dimensionResults, context);
     }
 
@@ -88,7 +78,7 @@ public final class ItineraryReviewOrchestrator {
     }
 
     private ItineraryDimensionReviewResult failedResult(ItineraryDimensionReviewer reviewer, String summary) {
-        DimensionReview dimensionReview = new DimensionReview(reviewer.dimension(),
+        ItineraryDimensionReview dimensionReview = new ItineraryDimensionReview(reviewer.dimension(),
                 ItineraryReviewDimensionStatus.FAILED, reviewer.reviewerType(),
                 reviewer.reviewerVersion(), null, List.of(), summary);
         return new ItineraryDimensionReviewResult(dimensionReview, List.of());

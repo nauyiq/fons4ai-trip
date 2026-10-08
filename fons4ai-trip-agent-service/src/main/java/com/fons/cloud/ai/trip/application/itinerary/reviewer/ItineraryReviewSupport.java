@@ -2,7 +2,7 @@ package com.fons.cloud.ai.trip.application.itinerary.reviewer;
 
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewSeverity;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewVerdict;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.ReviewIssue;
+import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -23,7 +23,7 @@ final class ItineraryReviewSupport {
         return StringUtils.equalsIgnoreCase(normalizeCity(left), normalizeCity(right));
     }
 
-    static ItineraryReviewVerdict verdictOf(List<ReviewIssue> issues) {
+    static ItineraryReviewVerdict verdictOf(List<ItineraryReviewIssue> issues) {
         if (issues.stream().anyMatch(issue -> issue.severity() == ItineraryReviewSeverity.BLOCKING)) {
             return ItineraryReviewVerdict.BLOCKED;
         }
