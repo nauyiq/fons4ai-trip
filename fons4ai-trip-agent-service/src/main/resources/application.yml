@@ -55,6 +55,13 @@ sys:
         access-secret: ${OBSERVABILITY_ACCESS_SECRET}
         endpoint: ${OBSERVABILITY_ENDPOINT}
         service-name: ${spring.application.name}
+  upload:
+    oss:
+      enabled: true
+      bucket: trip
+      endpoint: ${OSS_ENDPOINT}
+      secret-id: ${OSS_SECRET_ID}
+      secret-key: ${OSS_SECRET_KEY}
 
 trip:
   visa:
