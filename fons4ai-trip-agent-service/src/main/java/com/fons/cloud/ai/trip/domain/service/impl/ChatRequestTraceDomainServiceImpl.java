@@ -20,4 +20,11 @@ public class ChatRequestTraceDomainServiceImpl extends ServiceImpl<ChatRequestTr
                 .eq(ChatRequestTrace::getRunId, runId)
                 .set(ChatRequestTrace::getState, state));
     }
+
+    @Override
+    public boolean removeByConversationId(String conversationId) {
+        return update(Wrappers.lambdaUpdate(ChatRequestTrace.class)
+                .eq(ChatRequestTrace::getConversationId, conversationId)
+                .set(ChatRequestTrace::getDeleted, true));
+    }
 }

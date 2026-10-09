@@ -2,6 +2,7 @@ package com.fons.cloud.ai.trip.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fons.cloud.ai.trip.common.constants.TaskState;
 import com.fons.cloud.ai.trip.infrastructure.util.IdGenerator;
@@ -53,6 +54,12 @@ public class ChatRequestTrace {
      * 任务执行的最终状态
      */
     private TaskState state;
+
+    /**
+     * 逻辑删除
+     */
+    @TableLogic
+    private Boolean deleted;
 
     public static ChatRequestTrace create(String conversationId) {
         return ChatRequestTrace.builder()

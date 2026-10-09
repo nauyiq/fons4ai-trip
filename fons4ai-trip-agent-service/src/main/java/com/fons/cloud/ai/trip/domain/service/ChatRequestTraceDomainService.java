@@ -14,6 +14,8 @@ public interface ChatRequestTraceDomainService extends IService<ChatRequestTrace
      */
     boolean updateState(String runId, TaskState state);
 
-
+    /**
+     * 根据会话ID删除记录
+     */
     boolean removeByConversationId(String conversationId);
 }
