@@ -7,6 +7,8 @@ import com.fons.cloud.ai.trip.domain.mapper.ChatConversationMapper;
 import com.fons.cloud.ai.trip.domain.service.ChatConversationDomainService;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * @author hongqy
  */
@@ -33,5 +35,13 @@ public class ChatConversationDomainServiceImpl extends ServiceImpl<ChatConversat
                 .eq(ChatConversation::getConversationId, conversationId)
                 .eq(ChatConversation::getActiveRunId, pipelineRunId)
                 .set(ChatConversation::getActiveRunId, null));
+    }
+
+    @Override
+    public List<ChatConversation> listByUserId(String userId) {
+        return list(Wrappers.lambdaQuery(ChatConversation.class)
+                .eq(ChatConversation::getUserId, userId)
+                .orderByDesc(ChatConversation::getCreated)
+        );
     }
 }

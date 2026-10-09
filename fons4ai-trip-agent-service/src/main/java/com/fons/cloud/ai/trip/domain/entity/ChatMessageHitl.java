@@ -12,8 +12,8 @@ import lombok.*;
 /**
  * 对话消息HITL扩展信息。
  * <p>
- *     仅保存{@code APPROVAL}类型的中断恢复信息，与{@code chat_message}通过
- *     {@code message_id}一对一关联。
+ * 仅保存{@code APPROVAL}类型的中断恢复信息，与{@code chat_message}通过
+ * {@code message_id}一对一关联。
  * </p>
  *
  * @author hongqy
@@ -62,7 +62,7 @@ public class ChatMessageHitl extends BaseEntity {
      * 根据Agent HITL信息创建消息扩展记录
      *
      * @param messageId 关联的聊天消息ID
-     * @param info Agent返回的HITL信息
+     * @param info      Agent返回的HITL信息
      * @return 消息HITL扩展实体
      */
     public static ChatMessageHitl create(String messageId, HumanInTheLoopInfo info) {

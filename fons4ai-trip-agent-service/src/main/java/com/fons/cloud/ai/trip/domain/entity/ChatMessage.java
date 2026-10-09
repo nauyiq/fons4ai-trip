@@ -102,7 +102,7 @@ public class ChatMessage extends BaseEntity {
      * 逻辑删除标志
      */
     @TableLogic
-    private boolean deleted;
+    private Boolean deleted;
 
     /**
      * 创建一条用户消息

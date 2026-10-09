@@ -253,6 +253,36 @@ public class ConversationApplicationService {
         });
     }
 
+    /**
+     * 删除会话
+     * @param conversationId
+     * @param userId
+     * @return
+     */
+    public R<Void> delete(String conversationId, String userId) {
+        log.info("[CHAT]删除会话, conversationId:{}, userId:{}", conversationId, userId);
+        // 查询会话是否存在
+        ChatConversation conversation = chatConversationDomainService.findByUseIdAndConversationId(userId, conversationId);
+        if (conversation == null) {
+            return R.failed(TripAgentResultCode.CONVERSATION_NOT_EXIST);
+        }
+        // 删除会话以及聊天记录
+        Boolean execute = transactionTemplate.execute(status -> {
+            try {
+                Assert.isTrue(chatConversationDomainService.removeById(conversation), () -> SystemIntervalException.of("删除会话失败"));
+                Assert.isTrue(chatRequestTraceDomainService.removeByConversationId(conversationId), () -> SystemIntervalException.of("删除Trace失败"));
+                Assert.isTrue(chatMessageDomainService.removeByConversationId(conversationId), () -> SystemIntervalException.of("删除聊天记录失败"));
+                return true;
+            } catch (Exception e) {
+                status.setRollbackOnly();
+                log.error(e.getMessage(), e);
+                return false;
+            }
+        });
+
+        return Boolean.TRUE.equals(execute) ? R.success() : R.failed(ResultCode.SYSTEM_BUSY);
+    }
+
     private ChatMessageAggregate persistReplayRequest(ChatConversation conversation,
                                                       ConversationReplayRequest request,
                                                       String approvalMessageId) {
@@ -452,6 +482,7 @@ public class ConversationApplicationService {
                 .contents(messages.stream().map(chatMessageConverter::convertAgentInputContent).toList())
                 .build();
     }
+
 
 
 }

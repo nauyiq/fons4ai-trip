@@ -30,7 +30,7 @@ public record HotelSearchRequest(String city, LocalDate checkInDate, LocalDate c
 
     public HotelSearchRequest {
         if (childAges != null) {
-            childAges = Collections.unmodifiableList(new ArrayList<>(childAges));
+            childAges = List.copyOf(childAges);
         }
     }
 }
