@@ -21,7 +21,7 @@ import java.util.List;
 final class ItineraryRemediationPlanner {
 
     List<ItineraryRemediationItem> plan(ItineraryPlanningResult planningResult,
-                                       List<ItineraryReviewIssue> issues) {
+                                        List<ItineraryReviewIssue> issues) {
         // 1. 排除仅供提示的问题，并按阻断、警告顺序排列其余问题
         List<ItineraryReviewIssue> actionableIssues = issues.stream()
                 .filter(issue -> issue.severity() != ItineraryReviewSeverity.ADVISORY)

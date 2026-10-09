@@ -93,7 +93,9 @@
 3. `RETRY_REVIEW` 只针对当前 `planId` 重试一次 `review_itinerary_plan`，不消耗重新规划次数。若返回 `STOP_REVIEW_INCOMPLETE`，说明审核未完成及未覆盖的风险，停止自动重试，不声称审核通过。
 4. `STOP_NO_FEASIBLE_PROPOSAL` 或 `REQUIRE_MANUAL_APPROVAL` 时停止自动规划，说明审核结论和需要的人工动作。修复次数达到上限后，审核服务会把仍需重规划的结果收口为 `STOP_NO_FEASIBLE_PROPOSAL`；不得通过再次调用工具重置次数。
 
-审核完成并允许展示时，使用同一个真实 `planId` 调用 `query_itinerary_plan`，读取完整交通、酒店、费用、评分、政策提示和体验风险。不得猜测 `planId`，不得根据摘要或审核结果补写价格、班次、房型或风险。
+审核完成且 `nextAction=PROCEED` 时，使用同一个真实 `planId` 调用 `create_itinerary_plan_page`，让服务端生成并保存方案页面。工具返回的 `objectKey` 是服务端定位信息，不是用户可直接访问的地址；工具成功只表示页面已保存，不表示前端已经展示。页面生成失败时说明展示暂不可用，不要重复规划或编造页面链接。
+
+随后使用同一个真实 `planId` 调用 `query_itinerary_plan`，读取完整交通、酒店、费用、评分、政策提示和体验风险，用于向用户解释和确认方案。不得猜测 `planId`，不得根据摘要或审核结果补写价格、班次、房型或风险。
 
 向用户展示时至少包含：
 

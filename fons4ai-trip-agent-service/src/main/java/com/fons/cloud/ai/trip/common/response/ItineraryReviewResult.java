@@ -31,7 +31,7 @@ import java.util.List;
 public class ItineraryReviewResult {
 
     /**
-     * 本次审核结果唯一标识，用于精确读取完整报告。
+     * 本次审核结果唯一标识，用于标记和关联报告；最新报告按planId读取。
      */
     private String reviewId;
 

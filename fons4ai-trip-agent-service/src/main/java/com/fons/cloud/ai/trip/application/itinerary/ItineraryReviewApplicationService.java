@@ -3,7 +3,9 @@ package com.fons.cloud.ai.trip.application.itinerary;
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryReviewInputCollector;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryReviewOrchestrator;
+import com.fons.cloud.ai.trip.application.itinerary.validator.ItineraryRepairCycleValidatorService;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
+import com.fons.cloud.ai.trip.common.dto.ItineraryRepairCycle;
 import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TravelOrderReference;
@@ -11,6 +13,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
+import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryReviewRepository;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.ResultCode;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +27,8 @@ import java.time.format.DateTimeParseException;
 /**
  * 行程规划审核应用服务。
  * 按可信用户和会话读取已保存的规划，并在每次审核前重新加载关联差旅单，
- * 再交由固定审核规则集生成结构化审核结果，并应用修复循环的停止上限。
+ * 再交由固定审核规则集生成结构化审核结果，应用修复循环的停止上限，
+ * 按planId保存最终报告后推进当前流程状态。
  *
  * @author hongqy
  */
@@ -34,10 +38,11 @@ import java.time.format.DateTimeParseException;
 public class ItineraryReviewApplicationService {
 
     private final ItineraryPlanRepository planRepository;
+    private final ItineraryReviewRepository reviewRepository;
     private final TravelOrderDomainService travelOrderDomainService;
     private final ItineraryReviewInputCollector inputCollector;
     private final ItineraryReviewOrchestrator reviewOrchestrator;
-    private final ItineraryRepairCycleService repairCycleService;
+    private final ItineraryRepairCycleValidatorService repairCycleService;
 
     /**
      * 审核当前用户、当前会话下的指定规划结果。
@@ -69,8 +74,12 @@ public class ItineraryReviewApplicationService {
                 ItineraryReviewContext.now(currentTravelOrder));
         // 4. 执行各维度审核与结果仲裁，形成完整的结构化报告
         ItineraryReviewResult result = reviewOrchestrator.review(planningResult, context);
-        // 5. 应用修复和审核重试上限，返回本轮真实可执行的下一步动作
-        repairCycleService.afterReview(owner, planningResult, runId, result);
+        // 5. 应用修复和审核重试上限，确定本轮真实可执行的下一步动作
+        ItineraryRepairCycle resolvedCycle = repairCycleService.resolveAfterReview(
+                owner, planningResult, runId, result);
+        // 6. 先保存最终审核报告，再提交修复状态；报告保存失败不能推进流程
+        reviewRepository.saveLatest(owner, result);
+        repairCycleService.saveResolvedReview(owner, resolvedCycle);
         log.info("[ItineraryReviewApplicationService] 行程规划审核完成，userId={}, conversationId={}, "
                         + "planId={}, reviewId={}, executionStatus={}, verdict={}, nextAction={}",
                 owner.userId(), owner.conversationId(), normalizedPlanId, result.getReviewId(),

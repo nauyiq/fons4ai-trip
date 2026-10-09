@@ -108,6 +108,7 @@ public class MasterAgent {
         toolkit.registerTool(itinerarySearchTools);
         toolkit.registerTool(itineraryPlannerTools);
         toolkit.registerTool(itineraryPlanReadTools);
+        toolkit.registration().mcpClient(weatherMcp.getMcpClient()).enableTools(weatherMcp.getEnabledTools());
 
         // 子AGENT构建
         HarnessAgent itineraryPlanAgent = commonBuilder()
@@ -129,7 +130,6 @@ public class MasterAgent {
                 .name(TripAgent.MASTER_AGENT.getAgentName())
                 .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
                 .middleware(analysisAgentMiddleware);
-
 
         // 配置行程管理子Agent
         masterBuilder.subagentFactory(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName(), TripAgent.ITINERARY_MANAGE_AGENT.getDescription(),

@@ -2,7 +2,6 @@ package com.fons.cloud.ai.trip.infrastructure.config;
 
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryExecutionFeasibilityReviewer;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryReviewOrchestrator;
-import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryReviewRuleSet;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.SubjectiveDimensionReviewer;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.TravelOrderConsistencyReviewer;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.TravelPolicyComplianceReviewer;
@@ -25,7 +24,7 @@ public class ItineraryReviewConfiguration {
     @Bean
     public ItineraryReviewOrchestrator itineraryReviewOrchestrator(
             ItinerarySubjectiveAssessmentGateway subjectiveAssessmentGateway) {
-        ItineraryReviewRuleSet ruleSet = new ItineraryReviewRuleSet(
+        ItineraryReviewOrchestrator.ItineraryReviewRuleSet ruleSet = new ItineraryReviewOrchestrator.ItineraryReviewRuleSet(
                 EnumSet.of(ItineraryReviewDimension.TRAVEL_ORDER_CONSISTENCY,
                         ItineraryReviewDimension.POLICY_COMPLIANCE,
                         ItineraryReviewDimension.EXECUTION_FEASIBILITY,

@@ -1,5 +1,7 @@
 package com.fons.cloud.ai.trip.application.itinerary;
 
+import cn.hutool.core.lang.Assert;
+import com.fons.cloud.ai.trip.application.itinerary.validator.ItineraryRepairCycleValidatorService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateGroups;
@@ -12,12 +14,14 @@ import com.fons.cloud.ai.trip.common.dto.ItineraryPlanCombination.BuildResult;
 import com.fons.cloud.ai.trip.common.dto.ItineraryPlanningCandidates;
 import com.fons.cloud.ai.trip.common.dto.ItineraryPlanningCandidates.ConversionResult;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
+import com.fons.cloud.ai.trip.common.response.ItineraryCandidatesResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TravelOrderReference;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryCandidateRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
+import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import lombok.RequiredArgsConstructor;
@@ -40,11 +44,12 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class ItineraryPlanApplicationService {
+    private static final int DEFAULT_ADULT_COUNT = 2;
 
+    private final TravelOrderDomainService travelOrderDomainService;
     private final ItineraryCandidateRepository candidateRepository;
     private final ItineraryPlanRepository planRepository;
-    private final TravelOrderDomainService travelOrderDomainService;
-    private final ItineraryRepairCycleService repairCycleService;
+    private final ItineraryRepairCycleValidatorService repairCycleService;
 
     /**
      * 生成并保存一次单目的城市往返行程规划结果。
@@ -52,7 +57,7 @@ public class ItineraryPlanApplicationService {
      * 不接收调用方提交的候选明细；差旅政策应由可信工具适配层查询后写入请求。
      *
      * @param request 行程规划请求，包含可信身份、明确行程条件、真实政策、偏好评分及排除项
-     * @param runId 运行时提供的本轮标识，用于区分修复与下一轮新任务
+     * @param runId   运行时提供的本轮标识，用于区分修复与下一轮新任务
      * @return 完整结构化规划结果；包含实际输入快照、计算指标、代表方案和风险信息
      */
     public R<ItineraryPlanningResult> plan(ItineraryPlanRequest request, String runId) {
@@ -64,8 +69,7 @@ public class ItineraryPlanApplicationService {
         if (CollectionUtils.isNotEmpty(validationErrors)) {
             return R.failed(ResultCode.PARAMS_ERROR.getCode(), String.join("；", validationErrors));
         }
-        repairCycleService.beforePlan(new CandidateOwner(request.getUserId(), request.getConversationId()),
-                request, runId);
+        repairCycleService.beforePlan(new CandidateOwner(request.getUserId(), request.getConversationId()), request, runId);
 
         log.info("ItineraryPlanApplicationService#plan: userId={}, conversationId={}, origin={}, "
                         + "destination={}, departureDate={}, returnDate={}, travelOrderLinked={}",
@@ -125,6 +129,44 @@ public class ItineraryPlanApplicationService {
         repairCycleService.afterPlan(owner, request, runId, result);
         log.info("ItineraryPlanApplicationService#plan: planId={}, proposalCount={}", result.getPlanId(), result.getProposals().size());
         return R.success(result);
+    }
+
+    /**
+     * 根据planId获取一次单目的城市往返行程规划结果
+     * @param owner  规划结果归属不能为空
+     * @param planId planId不能为空
+     * @return
+     */
+    public ItineraryPlanningResult getPlan(CandidateOwner owner, String planId) {
+        Assert.notNull(owner, () -> parameterError("规划结果归属不能为空"));
+        Assert.notBlank(planId, () -> parameterError("planId不能为空"));
+        return planRepository.findById(owner, planId.trim());
+    }
+
+
+    /**
+     * 读取与指定往返条件完全匹配的累计候选池。
+     */
+    public ItineraryCandidatesResult getCandidates(CandidateOwner owner,
+                                                   String origin,
+                                                   String destination,
+                                                   LocalDate departureDate,
+                                                   LocalDate returnDate,
+                                                   Integer adultCount,
+                                                   List<Integer> childAges) {
+        Assert.notNull(owner, () -> parameterError("候选归属不能为空"));
+        int normalizedAdultCount = adultCount == null ? DEFAULT_ADULT_COUNT : adultCount;
+        List<Integer> normalizedChildAges = childAges == null ? List.of() : childAges;
+        ItineraryCandidateGroups groups = ItineraryCandidateGroups.roundTrip(owner, origin, destination,
+                departureDate, returnDate, normalizedAdultCount, normalizedChildAges);
+        ItineraryCandidateSnapshot snapshot = candidateRepository.loadSnapshot(groups);
+        return new ItineraryCandidatesResult(snapshot.capturedAt(), snapshot.outboundTransports(), snapshot.inboundTransports(), snapshot.hotels().candidates());
+    }
+
+
+
+    private BusinessRuntimeException parameterError(String message) {
+        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
     }
 
     /**

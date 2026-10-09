@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONException;
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.application.business.TravelPolicyApplicationService;
 import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanApplicationService;
+import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanPageApplicationService;
 import com.fons.cloud.ai.trip.application.itinerary.ItineraryReviewApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
@@ -12,11 +13,14 @@ import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest.CandidatePreferenceScores;
+import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageArtifact;
+import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageReady;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult.ProposalSummary;
+import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -49,10 +53,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ItineraryPlannerTools implements BaseTool {
 
-    public static final List<String> TOOLS = List.of("plan_itinerary", "review_itinerary_plan");
+    public static final List<String> TOOLS = List.of("plan_itinerary", "review_itinerary_plan",
+            "create_itinerary_plan_page");
 
     private final ItineraryPlanApplicationService itineraryPlanApplicationService;
     private final ItineraryReviewApplicationService itineraryReviewApplicationService;
+    private final ItineraryPlanPageApplicationService itineraryPlanPageApplicationService;
+    private final ItineraryPlanPageNotificationRegistry pageNotificationRegistry;
     private final TravelPolicyApplicationService travelPolicyApplicationService;
 
     @Tool(
@@ -190,6 +197,43 @@ public class ItineraryPlannerTools implements BaseTool {
                     normalizedUserId, normalizedPlanId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(),
                     "行程规划审核失败，不能据此判断方案已通过审核，请稍后重试。");
+        }
+    }
+
+    @Tool(name = "create_itinerary_plan_page",
+            description = "为当前会话中已审核且nextAction=PROCEED的方案生成HTML页面并保存。"
+                    + "工具会重新校验最新审核和当前方案，不会把不可展示方案发布。"
+                    + "返回planId和审核标识，不代表页面已发送给用户或完成预订。")
+    public R<ItineraryPlanPageReady> createItineraryPlanPage(
+            RuntimeContext context,
+            @ToolParam(name = "plan_id", description = "plan_itinerary成功返回且review_itinerary_plan已审核的真实planId") String planId) {
+        String userId = context == null ? null : context.getUserId();
+        String conversationId = context == null ? null : context.getSessionId();
+        String normalizedUserId = requiredRuntimeValue(userId, "user_id");
+        String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
+        String normalizedPlanId = StringUtils.trimToNull(planId);
+        if (normalizedPlanId == null) {
+            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "plan_id 不能为空");
+        }
+
+        log.info("[TOOL][create_itinerary_plan_page] userId={}, conversationId={}, planId={}",
+                normalizedUserId, normalizedConversationId, normalizedPlanId);
+        try {
+            CandidateOwner owner = new CandidateOwner(normalizedUserId, normalizedConversationId);
+            ItineraryPlanPageArtifact artifact = itineraryPlanPageApplicationService.create(owner, normalizedPlanId);
+            ItineraryPlanPageReady page = new ItineraryPlanPageReady(
+                    artifact.planId(), artifact.reviewId(), artifact.recommendedProposalId());
+            pageNotificationRegistry.publish(owner, page);
+            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", page);
+        } catch (BusinessRuntimeException e) {
+            log.warn("[TOOL][create_itinerary_plan_page] 页面生成未完成，userId={}, planId={}, code={}",
+                    normalizedUserId, normalizedPlanId, e.getCode());
+            return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
+        } catch (Exception e) {
+            log.error("[TOOL][create_itinerary_plan_page] 页面生成失败，userId={}, planId={}",
+                    normalizedUserId, normalizedPlanId, e);
+            return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(),
+                    "行程方案页面生成失败，不能据此判断方案不可展示，请稍后重试。");
         }
     }
 

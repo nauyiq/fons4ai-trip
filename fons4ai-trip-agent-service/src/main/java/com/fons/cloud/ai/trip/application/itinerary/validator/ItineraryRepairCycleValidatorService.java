@@ -1,4 +1,4 @@
-package com.fons.cloud.ai.trip.application.itinerary;
+package com.fons.cloud.ai.trip.application.itinerary.validator;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.ItineraryRepairStatus;
@@ -24,11 +24,16 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
-public class ItineraryRepairCycleService {
+public class ItineraryRepairCycleValidatorService {
 
-    /** 首次规划之后最多再生成两次修复方案。 */
+    /**
+     * 首次规划之后最多再生成两次修复方案。
+     */
     private static final int MAX_REPLAN_ATTEMPTS = 2;
-    /** 审核执行不完整时，同一方案最多重试一次审核。 */
+
+    /**
+     * 审核执行不完整时，同一方案最多重试一次审核。
+     */
     private static final int MAX_REVIEW_RETRIES = 1;
 
     private final ItineraryRepairCycleRepository repository;
@@ -97,10 +102,13 @@ public class ItineraryRepairCycleService {
     }
 
     /**
-     * 在审核动作上应用次数上限；警告且有推荐方案的 PROCEED 不触发修复。
+     * 在审核动作上应用次数上限，计算待保存状态，不提前推进流程。
+     * 警告且有推荐方案的 PROCEED 不触发修复。
+     *
+     * @return 审核报告保存成功后应写入的修复状态
      */
-    public void afterReview(CandidateOwner owner, ItineraryPlanningResult planningResult,
-                            String runId, ItineraryReviewResult result) {
+    public ItineraryRepairCycle resolveAfterReview(CandidateOwner owner, ItineraryPlanningResult planningResult,
+                                                   String runId, ItineraryReviewResult result) {
         // 1. 加载当前任务；旧规划首次审核时补建最小修复状态
         ItineraryRepairCycle cycle = repository.find(owner);
         if (cycle == null) {
@@ -128,15 +136,22 @@ public class ItineraryRepairCycleService {
             }
         }
 
-        // 3. 保存有效下一步动作对应的状态，供下次工具调用判断能否继续
+        // 3. 计算有效下一步动作对应的状态，等待审核报告保存成功后再提交
         ItineraryRepairStatus status = switch (action) {
             case REPLAN -> ItineraryRepairStatus.REPLAN_ALLOWED;
             case RETRY_REVIEW -> ItineraryRepairStatus.RETRY_REVIEW;
             case REQUEST_USER_INPUT -> ItineraryRepairStatus.INPUT_REQUIRED;
             default -> ItineraryRepairStatus.CLOSED;
         };
-        repository.save(owner, new ItineraryRepairCycle(cycle.scope(), cycle.planId(), runId,
-                cycle.replanCount(), reviewRetryCount, status));
+        return new ItineraryRepairCycle(cycle.scope(), cycle.planId(), runId,
+                cycle.replanCount(), reviewRetryCount, status);
+    }
+
+    /**
+     * 审核报告保存成功后提交修复状态。
+     */
+    public void saveResolvedReview(CandidateOwner owner, ItineraryRepairCycle cycle) {
+        repository.save(owner, cycle);
     }
 
     private void requireRunId(String runId) {
