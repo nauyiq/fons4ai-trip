@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS `travel_order` (
     `status`         VARCHAR(32)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态: DRAFT/SUBMITTED/APPROVED/REJECTED/COMPLETED/CANCELLED',
     `approval_id`    VARCHAR(64)  DEFAULT NULL COMMENT '关联审批单ID',
     `plan_html_url`  VARCHAR(512) DEFAULT NULL COMMENT '行程方案HTML的MinIO对象key',
-    `created`     DATETIME     DEFAULT NULL COMMENT '创建时间',
-    `updated`     DATETIME     DEFAULT NULL COMMENT '最后修改时间',
+    `created`        DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`order_id`),
     KEY `idx_user_status` (`user_id`, `status`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '差旅申请单';
@@ -39,8 +39,8 @@ CREATE TABLE IF NOT EXISTS `approval_record` (
     `status`              VARCHAR(32)   NOT NULL DEFAULT 'PENDING' COMMENT '状态: PENDING/APPROVED/REJECTED/CANCELLED',
     `approval_form`       TEXT          DEFAULT NULL COMMENT '审批表单JSON',
     `remark`              VARCHAR(512)  DEFAULT NULL COMMENT '备注',
-    `created`         DATETIME      DEFAULT NULL COMMENT '创建时间',
-    `updated`         DATETIME      DEFAULT NULL COMMENT '最后更新时间',
+    `created`        DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `order_id`            VARCHAR(64)   DEFAULT NULL COMMENT '关联差旅单ID',
     PRIMARY KEY (`process_instance_id`),
     KEY `idx_user_id` (`user_id`),
@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS `user_profile` (
     `id_number`     VARCHAR(64)  DEFAULT NULL COMMENT '证件号码（身份证/护照等），用于机票预订',
     `phone`         VARCHAR(32)  DEFAULT NULL COMMENT '手机号，用于机票预订联系人',
     `gender`        VARCHAR(4)   DEFAULT NULL COMMENT '性别：M-男，F-女',
-    `created`         DATETIME      DEFAULT NULL COMMENT '创建时间',
-    `updated`         DATETIME      DEFAULT NULL COMMENT '最后更新时间',
+    `created`        DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`user_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '用户档案';
 
@@ -72,8 +72,8 @@ CREATE TABLE IF NOT EXISTS `user` (
     `password`     VARCHAR(128) NOT NULL COMMENT '登录密码（生产环境应使用 BCrypt 加密）',
     `real_name`    VARCHAR(64)  DEFAULT NULL COMMENT '用户真实姓名',
     `role`         VARCHAR(16)  NOT NULL DEFAULT 'USER' COMMENT '角色：USER 普通用户 / ADMIN 管理员',
-    `created`         DATETIME      DEFAULT NULL COMMENT '创建时间',
-    `updated`         DATETIME      DEFAULT NULL COMMENT '最后更新时间',
+    `created`        DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_user_id`  (`user_id`),
     UNIQUE KEY `uk_username` (`username`)
@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS `chat_request_trace` (
     `analysis_content` LONGTEXT   DEFAULT NULL COMMENT '问题改写和意图识别结果JSON',
     `used_tools`      TEXT         DEFAULT NULL COMMENT '调用的工具名称，逗号分隔',
     `state`           VARCHAR(32)  NOT NULL DEFAULT 'init' COMMENT '状态：init/process/failed/interrupt/waiting_approval/success',
+    `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
     PRIMARY KEY (`run_id`),
     KEY `idx_conversation_id` (`conversation_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '每次聊天请求的执行轨迹';
@@ -142,8 +143,8 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
     `extra`           JSON         DEFAULT NULL COMMENT '扩展信息（进度快照/推荐问题等）',
     `feedback`        VARCHAR(16)  DEFAULT NULL COMMENT '用户反馈：LIKE 点赞 / DISLIKE 点踩 / NULL 未反馈',
     `feedback_at`     DATETIME     DEFAULT NULL COMMENT '反馈时间',
-    `created`         DATETIME     DEFAULT NULL COMMENT '创建时间',
-    `updated`         DATETIME     DEFAULT NULL COMMENT '最后更新时间',
+    `created`        DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
     PRIMARY KEY (`message_id`),
     KEY `idx_conversation_created` (`conversation_id`, `created`, `message_id`),
@@ -230,11 +231,11 @@ INSERT IGNORE INTO `user_profile` (`user_id`, `base_city`, `level`, `name_pinyin
 
 -- 2. 登录账号（密码明文 123456，仅限本地开发；生产环境请替换为 BCrypt 哈希）
 INSERT IGNORE INTO `user` (`user_id`, `username`, `password`, `real_name`, `role`) VALUES
-    ('u_001', 'admin',   '123456', '系统管理员', 'ADMIN'),
-    ('u001',  'alice',   '123456', '张三',     'USER'),
-    ('u002',  'bob',     '123456', '李四',     'USER'),
-    ('u003',  'charlie', '123456', '王五',     'USER'),
-    ('u004',  'david',   '123456', '赵六',     'USER');
+    ('u_001', 'admin',   '$2a$10$.tkwO768hqAl2LhbOBEMy.Rcqe30S4rdUu8poQm56AqGc2FuchTzW', '系统管理员', 'ADMIN'),
+    ('u001',  'alice',   '$2a$10$.tkwO768hqAl2LhbOBEMy.Rcqe30S4rdUu8poQm56AqGc2FuchTzW', '张三',     'USER'),
+    ('u002',  'bob',     '$2a$10$.tkwO768hqAl2LhbOBEMy.Rcqe30S4rdUu8poQm56AqGc2FuchTzW', '李四',     'USER'),
+    ('u003',  'charlie', '$2a$10$.tkwO768hqAl2LhbOBEMy.Rcqe30S4rdUu8poQm56AqGc2FuchTzW', '王五',     'USER'),
+    ('u004',  'david',   '$2a$10$.tkwO768hqAl2LhbOBEMy.Rcqe30S4rdUu8poQm56AqGc2FuchTzW', '赵六',     'USER');
 
 -- 3. 差旅政策规则（4 个职级区间 × 3 个城市等级 = 12 条）
 -- 列顺序：level_min, level_max, city_tier, flight_class, train_seat_class,
