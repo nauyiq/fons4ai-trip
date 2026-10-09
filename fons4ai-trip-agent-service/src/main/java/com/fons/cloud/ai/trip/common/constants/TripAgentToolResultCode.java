@@ -20,6 +20,7 @@ public enum TripAgentToolResultCode implements Result {
     RECORD_NOT_FOUND("RECORD_NOT_FOUND", "未找到审批记录"),
     BOOKING_RECORD_NOT_FOUND("BOOKING_RECORD_NOT_FOUND", "未找到预订记录"),
     PLAN_NOT_FOUND("PLAN_NOT_FOUND", "未找到行程规划结果"),
+    VISA_RECORD_NOT_FOUND("VISA_RECORD_NOT_FOUND", "未找到签证要求记录"),
     INVALID_STATE("INVALID_STATE", "无效的业务状态"),
     NEED_USER_CONFIRM("NEED_USER_CONFIRM", "需要用户确认"),
     UPDATED_FAILED("UPDATED_FAILED", "更新失败"),

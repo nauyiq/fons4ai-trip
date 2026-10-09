@@ -14,13 +14,11 @@ import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest.CandidatePreferenceScores;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageArtifact;
-import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageReady;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult.ProposalSummary;
-import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -59,7 +57,6 @@ public class ItineraryPlannerTools implements BaseTool {
     private final ItineraryPlanApplicationService itineraryPlanApplicationService;
     private final ItineraryReviewApplicationService itineraryReviewApplicationService;
     private final ItineraryPlanPageApplicationService itineraryPlanPageApplicationService;
-    private final ItineraryPlanPageNotificationRegistry pageNotificationRegistry;
     private final TravelPolicyApplicationService travelPolicyApplicationService;
 
     @Tool(
@@ -203,8 +200,8 @@ public class ItineraryPlannerTools implements BaseTool {
     @Tool(name = "create_itinerary_plan_page",
             description = "为当前会话中已审核且nextAction=PROCEED的方案生成HTML页面并保存。"
                     + "工具会重新校验最新审核和当前方案，不会把不可展示方案发布。"
-                    + "返回planId和审核标识，不代表页面已发送给用户或完成预订。")
-    public R<ItineraryPlanPageReady> createItineraryPlanPage(
+                    + "返回的是服务端页面定位信息，不代表页面已发送给用户或完成预订。")
+    public R<ItineraryPlanPageArtifact> createItineraryPlanPage(
             RuntimeContext context,
             @ToolParam(name = "plan_id", description = "plan_itinerary成功返回且review_itinerary_plan已审核的真实planId") String planId) {
         String userId = context == null ? null : context.getUserId();
@@ -221,10 +218,7 @@ public class ItineraryPlannerTools implements BaseTool {
         try {
             CandidateOwner owner = new CandidateOwner(normalizedUserId, normalizedConversationId);
             ItineraryPlanPageArtifact artifact = itineraryPlanPageApplicationService.create(owner, normalizedPlanId);
-            ItineraryPlanPageReady page = new ItineraryPlanPageReady(
-                    artifact.planId(), artifact.reviewId(), artifact.recommendedProposalId());
-            pageNotificationRegistry.publish(owner, page);
-            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", page);
+            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", artifact);
         } catch (BusinessRuntimeException e) {
             log.warn("[TOOL][create_itinerary_plan_page] 页面生成未完成，userId={}, planId={}, code={}",
                     normalizedUserId, normalizedPlanId, e.getCode());

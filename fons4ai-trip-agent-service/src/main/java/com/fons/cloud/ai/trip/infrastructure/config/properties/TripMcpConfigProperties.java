@@ -29,13 +29,6 @@ public class TripMcpConfigProperties {
 
     @Getter
     @Setter
-    public static class OriznVisaConfig {
-
-    }
-
-
-    @Getter
-    @Setter
     public static class TuniuMcpConfig {
 
         /**

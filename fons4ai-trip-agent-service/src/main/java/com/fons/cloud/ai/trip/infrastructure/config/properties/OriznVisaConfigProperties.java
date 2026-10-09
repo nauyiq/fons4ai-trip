@@ -2,6 +2,7 @@ package com.fons.cloud.ai.trip.infrastructure.config.properties;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -12,6 +13,7 @@ import java.time.Duration;
 @Getter
 @Setter
 @Component
+@ConfigurationProperties(prefix = "trip.visa.orizn")
 public class OriznVisaConfigProperties {
 
     /**
@@ -22,7 +24,7 @@ public class OriznVisaConfigProperties {
     /**
      * 访问路径
      */
-    private String baseUrl;
+    private String baseUrl = "https://visa.orizn.app";
 
     /**
      * HTTP连接建立的等待时间。

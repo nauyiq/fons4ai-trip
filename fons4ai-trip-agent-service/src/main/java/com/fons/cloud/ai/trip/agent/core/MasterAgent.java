@@ -67,6 +67,7 @@ public class MasterAgent {
     private final ItineraryPlannerTools itineraryPlannerTools;
     private final ItineraryPlanReadTools itineraryPlanReadTools;
     private final DestinationLiveTools destinationLiveTools;
+    private final VisaTools visaTools;
 
     // == MCP清单 ==
     private final WeatherMcp weatherMcp;
@@ -108,7 +109,11 @@ public class MasterAgent {
         toolkit.registerTool(itinerarySearchTools);
         toolkit.registerTool(itineraryPlannerTools);
         toolkit.registerTool(itineraryPlanReadTools);
-        toolkit.registration().mcpClient(weatherMcp.getMcpClient()).enableTools(weatherMcp.getEnabledTools());
+        if (weatherMcp.getMcpClient() != null) {
+            toolkit.registration().mcpClient(weatherMcp.getMcpClient())
+                    .enableTools(weatherMcp.getEnabledTools())
+                    .apply();
+        }
 
         // 子AGENT构建
         HarnessAgent itineraryPlanAgent = commonBuilder()
@@ -123,9 +128,33 @@ public class MasterAgent {
         return itineraryPlanAgent;
     }
 
+    @Bean(name = "infoAgent")
+    public HarnessAgent infoAgent() {
+        log.info("[MasterAgent] 开始创建信息查询子Agent...");
+        Toolkit toolkit = new Toolkit();
+        toolkit.registerTool(policyTools);
+        toolkit.registerTool(destinationLiveTools);
+        toolkit.registerTool(visaTools);
+        if (weatherMcp.getMcpClient() != null) {
+            toolkit.registration().mcpClient(weatherMcp.getMcpClient())
+                    .enableTools(weatherMcp.getEnabledTools())
+                    .apply();
+        }
+        HarnessAgent infoAgent = commonBuilder()
+                .name(TripAgent.INFO_AGENT.getAgentName())
+                .description(TripAgent.INFO_AGENT.getDescription())
+                .sysPrompt(PromptLoader.loadRequired("prompt/info-agent-system.md"))
+                .toolkit(toolkit)
+                .disableSubagents()
+                .build();
+        log.info("[MasterAgent] 信息查询子Agent创建成功...");
+        return infoAgent;
+    }
+
     @Bean(name = "masterAgent")
     public Agent masterAgent(HarnessAgent itineraryManageAgent,
-                             HarnessAgent itineraryPlanAgent) {
+                             HarnessAgent itineraryPlanAgent,
+                             HarnessAgent infoAgent) {
         HarnessAgent.Builder masterBuilder = commonBuilder()
                 .name(TripAgent.MASTER_AGENT.getAgentName())
                 .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
@@ -138,6 +167,9 @@ public class MasterAgent {
         // 配置行程规划子Agent
         masterBuilder.subagentFactory(TripAgent.ITINERARY_PLAN_AGENT.getAgentName(), TripAgent.ITINERARY_PLAN_AGENT.getDescription(),
                 name -> itineraryPlanAgent);
+
+        masterBuilder.subagentFactory(TripAgent.INFO_AGENT.getAgentName(), TripAgent.INFO_AGENT.getDescription(),
+                name -> infoAgent);
 
         // 采用fons4ai契约的agent实例
         return AgentScopeHarnessAgent.builder()
