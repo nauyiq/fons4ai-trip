@@ -6,8 +6,11 @@ import com.fons.cloud.ai.agent.model.hitl.HumanInTheLoopKind;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.agent.model.runtime.AgentRunState;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutePipeline;
+import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
+import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.reactor.api.ReactiveTaskRun;
 import com.fons.cloud.reactor.model.ReactiveTaskState;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -20,20 +23,25 @@ import java.util.Locale;
  * 将一次管道Run的过程事件和权威收口结果适配为应用层聊天流。
  *
  * <p>流开始时先发送包含conversationId的{@code conversation_ready}事件，
- * 原有Agent事件保持原样；事件通道结束后读取同一个Run的completion，追加一条
- * {@code run_ended}事件。两次订阅的是同一个Run的不同通道，不会再次执行管道。
+ * 原有Agent事件保持原样；事件通道结束后读取同一个Run的completion，在终态前按需发送
+ * {@code itinerary_page_ready}，最后追加{@code run_ended}。两次订阅的是同一个Run的不同通道，不会再次执行管道。
  * 结果处理器先于completion运行，因此该事件也表示本轮后置处理已经返回。</p>
  *
  * <p>终态事件的data包含conversationId、pipelineRunId、可用时的agentRunId、state和nextAction。
  * nextAction取值为none、input_required或approval；INPUT_REQUIRED对应的state仍为completed，
  * 结构化交互信息放在humanInTheLoopInfos中，不表示审批暂停。</p>
+ * @author hoqngqy
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ChatStreamOutputAdapter {
 
+    private final ItineraryPlanPageNotificationRegistry pageNotificationRegistry;
+
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
-                              String conversationId) {
+                              CandidateOwner owner) {
+        String conversationId = owner.conversationId();
         return Flux.defer(() -> Flux.just(conversationReadyEvent(conversationId, run.runId()))
                 .concatWith(run.events()
                         // 过程事件不是权威终态；即使过程通道失败，也要读取completion。
@@ -46,7 +54,22 @@ public class ChatStreamOutputAdapter {
                         .onErrorResume(error -> {
                             log.warn("聊天管道未形成最终结果，pipelineRunId:{}", run.runId(), error);
                             return Mono.just(unresolvedEvent(run.runId(), run.state(), conversationId));
-                        })));
+                        })
+                        .flatMapMany(terminalEvent -> pageReadyEvent(owner)
+                                .concatWith(Mono.just(terminalEvent))))
+                .doFinally(signal -> pageNotificationRegistry.discard(owner)));
+    }
+
+    private Mono<String> pageReadyEvent(CandidateOwner owner) {
+        return Mono.defer(() -> Mono.justOrEmpty(pageNotificationRegistry.consume(owner))
+                .map(page -> {
+                    JSONObject data = new JSONObject();
+                    data.put("conversationId", owner.conversationId());
+                    data.put("planId", page.planId());
+                    data.put("reviewId", page.reviewId());
+                    data.put("recommendedProposalId", page.recommendedProposalId());
+                    return event("itinerary_page_ready", data);
+                }));
     }
 
     private static String conversationReadyEvent(String conversationId, String pipelineRunId) {

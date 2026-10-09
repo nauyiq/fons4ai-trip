@@ -2,8 +2,10 @@ package com.fons.cloud.ai.trip.agent.tool;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONException;
+import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.application.business.TravelPolicyApplicationService;
 import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanApplicationService;
+import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanPageApplicationService;
 import com.fons.cloud.ai.trip.application.itinerary.ItineraryReviewApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
@@ -11,6 +13,7 @@ import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest.CandidatePreferenceScores;
+import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageArtifact;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
@@ -48,10 +51,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ItineraryPlannerTools implements BaseTool {
 
-    public static final List<String> TOOLS = List.of("plan_itinerary", "review_itinerary_plan");
+    public static final List<String> TOOLS = List.of("plan_itinerary", "review_itinerary_plan",
+            "create_itinerary_plan_page");
 
     private final ItineraryPlanApplicationService itineraryPlanApplicationService;
     private final ItineraryReviewApplicationService itineraryReviewApplicationService;
+    private final ItineraryPlanPageApplicationService itineraryPlanPageApplicationService;
     private final TravelPolicyApplicationService travelPolicyApplicationService;
 
     @Tool(
@@ -59,7 +64,7 @@ public class ItineraryPlannerTools implements BaseTool {
             description = "根据当前会话已经保存的去程、酒店和返程候选生成往返方案。"
                     + "工具会按当前用户和目的城市读取真实差旅政策，完成费用、耗时、偏好、政策和体验计算，"
                     + "保存完整结果并返回代表方案摘要。调用前必须完成对应候选搜索；工具不解读偏好文本，"
-                    + "有明确偏好时应先通过scores提供候选偏好分。"
+                    + "有明确偏好时应先通过scores提供候选偏好分。同一行程首次规划后最多再修复规划两次。"
     )
     public R<PlanItineraryResult> planItinerary(
             RuntimeContext context,
@@ -123,7 +128,7 @@ public class ItineraryPlannerTools implements BaseTool {
             TravelPolicy policy = travelPolicyApplicationService.getPolicy(normalizedUserId, request.getDestination());
             request.setPolicy(policy);
 
-            R<ItineraryPlanningResult> planningResult = itineraryPlanApplicationService.plan(request);
+            R<ItineraryPlanningResult> planningResult = itineraryPlanApplicationService.plan(request, currentRunId(context));
             if (!planningResult.isSuccess()) {
                 return planningFailure(planningResult);
             }
@@ -148,9 +153,10 @@ public class ItineraryPlannerTools implements BaseTool {
     @Tool(
             name = "review_itinerary_plan",
             description = "审核当前会话中plan_itinerary已经保存的指定方案，重新读取关联差旅单当前状态，"
-                    + "执行差旅单一致性、政策合规和方案执行可行性审核。"
+                    + "执行差旅单一致性、政策合规、方案可行性、体验偏好和韧性审核。"
                     + "工具调用成功不等于审核通过；必须根据返回的executionStatus、verdict、"
-                    + "recommendedProposalId、issues、remediationItems和nextAction继续处理。"
+                    + "recommendedProposalId、issues、remediationItems和nextAction继续处理；"
+                    + "修复或审核重试达到上限时，nextAction会明确要求停止。"
     )
     public R<ItineraryReviewResult> reviewItineraryPlan(
             RuntimeContext context,
@@ -168,7 +174,8 @@ public class ItineraryPlannerTools implements BaseTool {
                 normalizedUserId, normalizedConversationId, normalizedPlanId);
         try {
             CandidateOwner owner = new CandidateOwner(normalizedUserId, normalizedConversationId);
-            ItineraryReviewResult result = itineraryReviewApplicationService.review(owner, normalizedPlanId);
+            ItineraryReviewResult result = itineraryReviewApplicationService.review(owner, normalizedPlanId,
+                    currentRunId(context));
             if (result == null) {
                 return R.failed(TripAgentToolResultCode.PLAN_NOT_FOUND.getCode(),
                         "当前会话未找到对应的行程规划结果，请使用plan_itinerary实际返回的planId。");
@@ -187,6 +194,40 @@ public class ItineraryPlannerTools implements BaseTool {
                     normalizedUserId, normalizedPlanId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(),
                     "行程规划审核失败，不能据此判断方案已通过审核，请稍后重试。");
+        }
+    }
+
+    @Tool(name = "create_itinerary_plan_page",
+            description = "为当前会话中已审核且nextAction=PROCEED的方案生成HTML页面并保存。"
+                    + "工具会重新校验最新审核和当前方案，不会把不可展示方案发布。"
+                    + "返回的是服务端页面定位信息，不代表页面已发送给用户或完成预订。")
+    public R<ItineraryPlanPageArtifact> createItineraryPlanPage(
+            RuntimeContext context,
+            @ToolParam(name = "plan_id", description = "plan_itinerary成功返回且review_itinerary_plan已审核的真实planId") String planId) {
+        String userId = context == null ? null : context.getUserId();
+        String conversationId = context == null ? null : context.getSessionId();
+        String normalizedUserId = requiredRuntimeValue(userId, "user_id");
+        String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
+        String normalizedPlanId = StringUtils.trimToNull(planId);
+        if (normalizedPlanId == null) {
+            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "plan_id 不能为空");
+        }
+
+        log.info("[TOOL][create_itinerary_plan_page] userId={}, conversationId={}, planId={}",
+                normalizedUserId, normalizedConversationId, normalizedPlanId);
+        try {
+            CandidateOwner owner = new CandidateOwner(normalizedUserId, normalizedConversationId);
+            ItineraryPlanPageArtifact artifact = itineraryPlanPageApplicationService.create(owner, normalizedPlanId);
+            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", artifact);
+        } catch (BusinessRuntimeException e) {
+            log.warn("[TOOL][create_itinerary_plan_page] 页面生成未完成，userId={}, planId={}, code={}",
+                    normalizedUserId, normalizedPlanId, e.getCode());
+            return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
+        } catch (Exception e) {
+            log.error("[TOOL][create_itinerary_plan_page] 页面生成失败，userId={}, planId={}",
+                    normalizedUserId, normalizedPlanId, e);
+            return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(),
+                    "行程方案页面生成失败，不能据此判断方案不可展示，请稍后重试。");
         }
     }
 
@@ -227,6 +268,11 @@ public class ItineraryPlannerTools implements BaseTool {
         return normalized;
     }
 
+    private String currentRunId(RuntimeContext context) {
+        Object value = context == null ? null : context.get(FonsAgentTraceMiddleware.RUN_ID_ATTRIBUTE);
+        return value == null ? null : StringUtils.trimToNull(String.valueOf(value));
+    }
+
     private R<PlanItineraryResult> requestValidationFailure(List<String> validationErrors) {
         boolean dateErrorsOnly = validationErrors.stream().allMatch(message -> message.contains("日期"));
         TripAgentToolResultCode resultCode = dateErrorsOnly
@@ -260,6 +306,9 @@ public class ItineraryPlannerTools implements BaseTool {
     }
 
     private TripAgentToolResultCode resolveBusinessErrorCode(BusinessRuntimeException e) {
+        if (ResultCode.ILLEGAL_REQUEST_LIMITED.getCode().equals(e.getCode())) {
+            return TripAgentToolResultCode.INVALID_STATE;
+        }
         return ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())
                 ? TripAgentToolResultCode.INVALID_PARAM : TripAgentToolResultCode.INTERNAL_ERROR;
     }

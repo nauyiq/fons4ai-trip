@@ -17,6 +17,7 @@ import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
 import com.fons.cloud.ai.trip.common.constants.TaskState;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
+import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.ai.trip.common.request.ConversationInterruptRequest;
 import com.fons.cloud.ai.trip.common.request.ConversationReplayRequest;
@@ -131,7 +132,7 @@ public class ConversationApplicationService {
                 releaseUnstartedApproval(replayMessageId);
                 return Flux.error(error);
             }
-            return chatStreamOutputAdapter.adapt(run, aggregate.getConversationId())
+            return chatStreamOutputAdapter.adapt(run, new CandidateOwner(aggregate.getConversation().getUserId(), aggregate.getConversationId()))
                     .doOnCancel(run::cancel) // 前端断开时也取消根 Run
                     .doFinally(signal -> {
                         try {

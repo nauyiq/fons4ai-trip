@@ -1,5 +1,6 @@
 package com.fons.cloud.ai.trip.application.itinerary.reviewer;
 
+import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
 import com.fons.cloud.ai.trip.common.constants.BookingType;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimension;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimensionStatus;
@@ -9,14 +10,14 @@ import com.fons.cloud.ai.trip.common.constants.ItineraryReviewSeverity;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewVerdict;
 import com.fons.cloud.ai.trip.common.constants.TravelCabinClass;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
-import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReviewResult;
+import com.fons.cloud.ai.trip.common.dto.ItineraryDimensionReviewResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.HotelOption;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TransportOption;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.DimensionReview;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.ReviewEvidence;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.ReviewIssue;
+import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReview;
+import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
+import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
@@ -49,6 +50,7 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
     @Override
     public ItineraryDimensionReviewResult review(ItineraryPlanningResult planningResult,
                                                   ItineraryReviewContext context) {
+        // 1. 校验规划输入、差旅政策和代表方案是否具备审核条件
         if (planningResult == null || planningResult.getUserRequest() == null
                 || StringUtils.isBlank(planningResult.getPlanId())) {
             return result(ItineraryReviewDimensionStatus.FAILED, null, List.of(),
@@ -58,9 +60,9 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
         TravelPolicy policy = planningResult.getPolicy();
         if (policy == null) {
             ItineraryReviewIssueCode code = ItineraryReviewIssueCode.TRAVEL_POLICY_MISSING;
-            ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
+            ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
                     planningResult.getPlanId(), "policy", planningResult.getGeneratedAt(), "null", "有效差旅政策");
-            ReviewIssue issue = new ReviewIssue(code.name(), code, dimension(),
+            ItineraryReviewIssue issue = new ItineraryReviewIssue(code.name(), code, dimension(),
                     ItineraryReviewSeverity.BLOCKING, true, true, proposalIds(planningResult),
                     List.of(evidence), "规划结果未保存差旅政策，不能判断方案是否合规");
             return result(ItineraryReviewDimensionStatus.NOT_EVALUATED, null, List.of(issue),
@@ -79,6 +81,7 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
                     "规划结果缺少可审核的代表方案或proposalId");
         }
 
+        // 2. 确认政策适用于本次目的城市，不使用不匹配的政策推断合规
         String destination = planningResult.getUserRequest().destination();
         if (StringUtils.isBlank(destination) || StringUtils.isBlank(policy.getDestinationCity())) {
             return result(ItineraryReviewDimensionStatus.FAILED, null, List.of(),
@@ -88,16 +91,17 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
         List<String> allProposalIds = proposals.stream().map(Proposal::proposalId).toList();
         if (!ItineraryReviewSupport.sameCity(destination, policy.getDestinationCity())) {
             ItineraryReviewIssueCode code = ItineraryReviewIssueCode.TRAVEL_POLICY_DESTINATION_MISMATCH;
-            ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.TRAVEL_POLICY,
+            ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.TRAVEL_POLICY,
                     policyReferenceId(policy), "destinationCity", planningResult.getGeneratedAt(),
                     policy.getDestinationCity(), destination);
-            ReviewIssue issue = new ReviewIssue(code.name(), code, dimension(),
+            ItineraryReviewIssue issue = new ItineraryReviewIssue(code.name(), code, dimension(),
                     ItineraryReviewSeverity.BLOCKING, true, true, allProposalIds, List.of(evidence),
                     "规划目的城市与政策适用城市不一致，不能使用当前政策得出合规结论");
             return result(ItineraryReviewDimensionStatus.PARTIAL, ItineraryReviewVerdict.BLOCKED,
                     List.of(issue), "差旅政策适用城市不匹配，已停止其余政策规则审核");
         }
 
+        // 3. 逐方案检查酒店、交通与审批阈值，再检查提前预订天数
         PolicyReviewState state = new PolicyReviewState();
         for (Proposal proposal : proposals) {
             reviewHotel(policy, planningResult, proposal, state);
@@ -107,6 +111,7 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
         }
         reviewAdvanceBookingDays(policy, planningResult, context, allProposalIds, state);
 
+        // 4. 根据违规问题及未完成规则形成政策维度的结论
         ItineraryReviewVerdict verdict = ItineraryReviewSupport.verdictOf(state.issues);
         ItineraryReviewDimensionStatus status = state.skippedRuleCount == 0
                 ? ItineraryReviewDimensionStatus.COMPLETE : ItineraryReviewDimensionStatus.PARTIAL;
@@ -138,7 +143,7 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
             ItineraryReviewIssueCode code = ItineraryReviewIssueCode.HOTEL_RATE_LIMIT_EXCEEDED;
             state.issues.add(proposalIssue(code, planningResult, proposal, hotel.candidateId(),
                     "hotel.pricePerNight", hotel.pricePerNight().toPlainString(), hotelLimit.toPlainString(),
-                    ItineraryReviewSeverity.BLOCKING, true, true,
+                    ItineraryReviewSeverity.WARNING, false, true,
                     "酒店每晚价格超过差旅政策上限"));
         }
 
@@ -154,8 +159,8 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
             ItineraryReviewIssueCode code = ItineraryReviewIssueCode.HOTEL_STAR_LIMIT_EXCEEDED;
             state.issues.add(proposalIssue(code, planningResult, proposal, hotel.candidateId(),
                     "hotel.starRating", String.valueOf(hotel.starRating()),
-                    String.valueOf(policy.getHotelStarLimit()), ItineraryReviewSeverity.BLOCKING,
-                    true, true, "酒店星级超过差旅政策上限"));
+                    String.valueOf(policy.getHotelStarLimit()), ItineraryReviewSeverity.WARNING,
+                    false, true, "酒店星级超过差旅政策上限"));
         }
     }
 
@@ -188,7 +193,7 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
         ItineraryReviewIssueCode code = ItineraryReviewIssueCode.TRANSPORT_CABIN_LIMIT_EXCEEDED;
         state.issues.add(proposalIssue(code, planningResult, proposal, transport.candidateId(),
                 fieldPrefix + ".cabinClass", transport.cabinClass(), allowed,
-                ItineraryReviewSeverity.BLOCKING, true, true,
+                ItineraryReviewSeverity.WARNING, false, true,
                 direction + (transport.type() == BookingType.FLIGHT ? "机票舱位" : "火车席别")
                         + "超过差旅政策允许范围"));
     }
@@ -236,16 +241,16 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
         }
 
         ItineraryReviewIssueCode code = ItineraryReviewIssueCode.ADVANCE_BOOKING_DAYS_INSUFFICIENT;
-        ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.TRAVEL_POLICY,
+        ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.TRAVEL_POLICY,
                 policyReferenceId(policy), "advanceBookingDays", context.reviewedAt(),
                 String.valueOf(actualDays), String.valueOf(policy.getAdvanceBookingDays()));
-        state.issues.add(new ReviewIssue(code.name(), code, dimension(), ItineraryReviewSeverity.WARNING,
+        state.issues.add(new ItineraryReviewIssue(code.name(), code, dimension(), ItineraryReviewSeverity.WARNING,
                 false, false, proposalIds, List.of(evidence),
                 "距离出发还有" + actualDays + "天，少于政策要求的提前"
                         + policy.getAdvanceBookingDays() + "天"));
     }
 
-    private ReviewIssue proposalIssue(ItineraryReviewIssueCode code,
+    private ItineraryReviewIssue proposalIssue(ItineraryReviewIssueCode code,
                                       ItineraryPlanningResult planningResult,
                                       Proposal proposal,
                                       String referenceId,
@@ -257,10 +262,10 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
                                       boolean repairable,
                                       String message) {
         String issueId = code.name() + ":" + proposal.proposalId() + ":" + field;
-        ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
+        ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
                 StringUtils.defaultIfBlank(referenceId, proposal.proposalId()), field,
                 planningResult.getGeneratedAt(), actual, expected);
-        return new ReviewIssue(issueId, code, dimension(), severity, hardConstraint, repairable,
+        return new ItineraryReviewIssue(issueId, code, dimension(), severity, hardConstraint, repairable,
                 List.of(proposal.proposalId()), List.of(evidence), message);
     }
 
@@ -270,10 +275,10 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
                                     String expected,
                                     PolicyReviewState state) {
         ItineraryReviewIssueCode code = ItineraryReviewIssueCode.POLICY_EVIDENCE_MISSING;
-        ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
+        ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
                 proposal.proposalId(), field, planningResult.getGeneratedAt(), "null", expected);
         String issueId = code.name() + ":" + proposal.proposalId() + ":" + field;
-        state.issues.add(new ReviewIssue(issueId, code, dimension(), ItineraryReviewSeverity.BLOCKING,
+        state.issues.add(new ItineraryReviewIssue(issueId, code, dimension(), ItineraryReviewSeverity.BLOCKING,
                 true, true, List.of(proposal.proposalId()), List.of(evidence),
                 "方案缺少政策审核所需数据：" + field));
         state.skippedRuleCount++;
@@ -306,17 +311,17 @@ public final class TravelPolicyComplianceReviewer implements ItineraryDimensionR
 
     private ItineraryDimensionReviewResult result(ItineraryReviewDimensionStatus status,
                                                   ItineraryReviewVerdict verdict,
-                                                  List<ReviewIssue> issues,
+                                                  List<ItineraryReviewIssue> issues,
                                                   String summary) {
-        List<String> issueIds = issues.stream().map(ReviewIssue::issueId).toList();
-        DimensionReview dimensionReview = new DimensionReview(dimension(), status,
+        List<String> issueIds = issues.stream().map(ItineraryReviewIssue::issueId).toList();
+        ItineraryDimensionReview dimensionReview = new ItineraryDimensionReview(dimension(), status,
                 reviewerType(), reviewerVersion(), verdict, issueIds, summary);
         return new ItineraryDimensionReviewResult(dimensionReview, issues);
     }
 
     private static final class PolicyReviewState {
 
-        private final List<ReviewIssue> issues = new ArrayList<>();
+        private final List<ItineraryReviewIssue> issues = new ArrayList<>();
         private int skippedRuleCount;
     }
 }

@@ -1,8 +1,9 @@
 package com.fons.cloud.ai.trip.application.itinerary.reviewer;
 
+import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimension;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewerType;
-import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReviewResult;
+import com.fons.cloud.ai.trip.common.dto.ItineraryDimensionReviewResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 
 /**
