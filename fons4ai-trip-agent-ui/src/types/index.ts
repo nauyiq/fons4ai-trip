@@ -21,6 +21,8 @@ export interface Message {
   content: string;
   agentName?: string;
   timestamp: number;
+  /** Trip 持久化消息内容类型；未指定时按普通文本展示。 */
+  messageContentType?: 'TEXT' | 'IMAGE' | 'VOICE';
   /** 快照的该轮进度树，用于历史对话中持久展示 */
   progress?: PlanProgress;
   /** 快照的该轮思考过程（每个 Agent 有多轮） */

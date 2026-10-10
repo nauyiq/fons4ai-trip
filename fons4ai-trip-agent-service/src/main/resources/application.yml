@@ -54,7 +54,7 @@ sys:
         access-id: ${OBSERVABILITY_ACCESS_ID}
         access-secret: ${OBSERVABILITY_ACCESS_SECRET}
         endpoint: ${OBSERVABILITY_ENDPOINT}
-        service-name: ${spring.application.name}
+        service-name: trip
   upload:
     oss:
       enabled: true
@@ -69,6 +69,8 @@ trip:
       # 企业服务级凭据，不向用户或模型索取。
       api-key: ${ORIZN_API_KEY:}
   mcp:
+    weather:
+      endpoint: ${WEATHER_MCP_ENDPOINT:http://mcpservergateway.market.alicloudapi.com/mcpnacos/cmapi00074002/0b9f869dd2964bfca87f8ab7e641fe52}
     tuniu:
       # 企业统一配置的搜索服务凭据，不要求员工提供个人Key。
       api-key: ${TUNIU_API_KEY:}
@@ -79,16 +81,16 @@ trip:
      strong-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.7-max
+       model-name: qwen3.8-flash
      strong-thing-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.7-max
+       model-name: qwen3.8-flash
      stable-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
-       model-name: glm-5.1
+       model-name: glm-5.3
      fast-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.6-flash
+       model-name: deepseek-v4.1-flash

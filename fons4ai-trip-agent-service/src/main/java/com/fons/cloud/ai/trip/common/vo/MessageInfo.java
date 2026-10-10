@@ -36,6 +36,16 @@ public class MessageInfo implements Serializable {
     private String content;
 
     /**
+     * 回复消息所属的Agent名称，用于历史消息展示。
+     */
+    private String agentName;
+
+    /**
+     * 消息创建时间，Unix毫秒时间戳；历史排序和展示以持久化时间为准。
+     */
+    private Long created;
+
+    /**
      * 思考内容
      */
     private String thinking;

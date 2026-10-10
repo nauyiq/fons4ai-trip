@@ -55,7 +55,7 @@ public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper,
         Page<ChatMessage> pageQuery = new Page<>(page, pageSize);
         return this.page(pageQuery, Wrappers.lambdaQuery(ChatMessage.class)
                 .eq(ChatMessage::getConversationId, conversationId)
-                .orderByAsc(ChatMessage::getCreated));
+                .orderByAsc(ChatMessage::getCreated, ChatMessage::getMessageId));
     }
 
     @Override

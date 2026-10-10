@@ -8,6 +8,7 @@ import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceM
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.mcp.WeatherMcp;
 import com.fons.cloud.ai.trip.infrastructure.middleware.AnalysisAgentMiddleware;
+import com.fons.cloud.ai.trip.infrastructure.middleware.MasterDispatchMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.CompressConfig;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.MasterAgentConfigProperties;
 import com.fons.cloud.ai.trip.agent.tool.*;
@@ -16,6 +17,8 @@ import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddlewar
 import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tool.ToolkitConfig;
+import io.agentscope.core.tracing.OtelTracingMiddleware;
 import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
@@ -40,7 +43,7 @@ import java.time.Duration;
 @Configuration
 @RequiredArgsConstructor
 @EnableConfigurationProperties(MasterAgentConfigProperties.class)
-public class MasterAgent {
+public class MasterAgentConfig {
     private final MasterAgentConfigProperties properties;
     private final DistributedStore distributedStore;
     private final AgentTaskManager agentTaskManager;
@@ -52,6 +55,8 @@ public class MasterAgent {
     private final TripTimeContextMiddleware tripTimeContextMiddleware;
     // 将Pipeline分析结果临时注入MasterAgent的模型输入
     private final AnalysisAgentMiddleware analysisAgentMiddleware;
+    // 仅约束Master的串行委派，不影响专业子Agent的工具及审批配置
+    private final MasterDispatchMiddleware masterDispatchMiddleware;
     // 持久化当前会话Agent身份的中间件
     private final ActiveAgentPersistenceMiddleware activeAgentPersistenceMiddleware;
 
@@ -158,7 +163,10 @@ public class MasterAgent {
         HarnessAgent.Builder masterBuilder = commonBuilder()
                 .name(TripAgent.MASTER_AGENT.getAgentName())
                 .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
-                .middleware(analysisAgentMiddleware);
+                .middleware(analysisAgentMiddleware)
+                .middleware(masterDispatchMiddleware)
+                // 即使模型一次返回多个调用，也按顺序执行；子Agent仍使用各自的Toolkit。
+                .toolkit(new Toolkit(ToolkitConfig.builder().parallel(false).build()));
 
         // 配置行程管理子Agent
         masterBuilder.subagentFactory(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName(), TripAgent.ITINERARY_MANAGE_AGENT.getDescription(),
@@ -184,6 +192,9 @@ public class MasterAgent {
     private HarnessAgent.Builder commonBuilder() {
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .middleware(tripTimeContextMiddleware)
+                // 原生中间件创建Agent、模型和工具Span；Fons中间件在同一上下文中补充业务事件。
+                // Master与子Agent统一注册，确保整条调用链可由Langfuse接收和关联。
+                .middleware(new OtelTracingMiddleware())
                 .middleware(fonsAgentTraceMiddleware)
                 .middleware(activeAgentPersistenceMiddleware)
                 .model(ModelFacade.getModel(properties.getMainModel()))

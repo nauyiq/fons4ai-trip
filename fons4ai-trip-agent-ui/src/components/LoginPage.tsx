@@ -18,9 +18,9 @@ export default function LoginPage() {
       <div className="login-page">
         <div className="login-card" style={{ textAlign: 'center' }}>
           <div className="login-brand" style={{ justifyContent: 'center', marginBottom: 24 }}>
-            <span className="login-brand-icon">✈</span>
+            <span className="fons-brand-mark" aria-hidden="true">F</span>
             <div>
-              <div className="login-brand-name">Trip 智能差旅</div>
+              <div className="login-brand-name">Fons 智能差旅</div>
             </div>
           </div>
           <div className="login-btn-loading">
@@ -57,9 +57,9 @@ export default function LoginPage() {
       <div className="login-card">
         {/* Brand */}
         <div className="login-brand">
-          <span className="login-brand-icon">✈</span>
+          <span className="fons-brand-mark" aria-hidden="true">F</span>
           <div>
-            <div className="login-brand-name">Trip 智能差旅</div>
+            <div className="login-brand-name">Fons 智能差旅</div>
             <div className="login-brand-sub">企业智能差旅助手</div>
           </div>
         </div>

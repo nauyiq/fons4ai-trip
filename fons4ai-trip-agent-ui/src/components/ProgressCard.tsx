@@ -15,7 +15,7 @@ const SUB_AGENT_SET = new Set([
 const PLAN_SUB_AGENT_SET = new Set(['ItineraryReviewAgent']);
 
 const AGENT_LABELS: Record<string, string> = {
-  MasterAgent:            'GoGo助手',
+  MasterAgent:            'Fons 差旅助手',
   QueryRewritingAgent:    '问题改写智能体',
   IntentRecognitionAgent: '意图识别智能体',
   ItineraryPlanAgent:     '行程规划智能体',
@@ -369,7 +369,7 @@ export default function ProgressCard({
             />
           </svg>
         </div>
-        <span className="progress-card-label">GoGo智能差旅智能体</span>
+        <span className="progress-card-label">Fons 差旅助手</span>
         {inProgress ? (
           <span className="progress-status-badge working">处理中</span>
         ) : (

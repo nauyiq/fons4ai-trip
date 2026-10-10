@@ -9,7 +9,11 @@ import { isPersistedMessageId } from '../store/chatStore';
 
 // ── Agent display names ───────────────────────────────────────────────────
 const AGENT_LABELS: Record<string, string> = {
-  MasterAgent: 'GoGo助手',
+  MasterAgent: 'Fons 差旅助手',
+  masterAgent: 'Fons 差旅助手',
+  queryRewriteAgent: '查询改写智能体',
+  intentRecognitionAgent: '意图识别智能体',
+  itineraryManageAgent: '行程管理智能体',
   QueryRewritingAgent: '查询改写智能体',
   IntentRecognitionAgent: '意图识别智能体',
   ItineraryPlanAgent: '行程规划智能体',
@@ -21,7 +25,7 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 function agentDisplayName(name?: string) {
-  if (!name) return 'GoGo差旅助手';
+  if (!name) return 'Fons 差旅助手';
   return AGENT_LABELS[name] || name;
 }
 
@@ -437,7 +441,10 @@ export default function AgentMessageBlock({ msg, liveTimeline = [], isStreaming,
             </div>
           )}
 
-          {hasContent && <MarkdownContent content={msg.content} />}
+          {hasContent && (msg.messageContentType === 'IMAGE' ?
+            <img className="history-message-image" src={msg.content} alt="助手回复的图片" /> :
+            msg.messageContentType === 'VOICE' ? <audio controls src={msg.content} /> :
+            <MarkdownContent content={msg.content} />)}
 
           {isStreaming && !hasContent && (
             <div className="thinking-indicator">
@@ -450,7 +457,7 @@ export default function AgentMessageBlock({ msg, liveTimeline = [], isStreaming,
         </div>
         <div className="msg-agent-footer">
           <div className="msg-agent-time">
-            {new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
+            {msg.timestamp > 0 && new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
               hour: '2-digit',
               minute: '2-digit',
             })}

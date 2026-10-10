@@ -1,6 +1,8 @@
 package com.fons.cloud.ai.trip.common.dto;
 
 import com.fons.cloud.ai.trip.common.constants.IntentCategory;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 import java.util.List;
@@ -44,12 +46,17 @@ public class IntentRecognitionResult {
      */
     private final Double score;
 
-    public IntentRecognitionResult(Source source,
-                                   List<IntentItem> intents,
-                                   IntentCategory primary,
-                                   boolean multiIntent,
-                                   String overallReason,
-                                   Double score) {
+    /**
+     * 按缓存中的属性名恢复不可变分析结果，供 Redisson 的 Jackson 编解码器使用。
+     * 显式标注参数名，避免反序列化依赖编译器保留构造参数名称。
+     */
+    @JsonCreator
+    public IntentRecognitionResult(@JsonProperty("source") Source source,
+                                   @JsonProperty("intents") List<IntentItem> intents,
+                                   @JsonProperty("primary") IntentCategory primary,
+                                   @JsonProperty("multiIntent") boolean multiIntent,
+                                   @JsonProperty("overallReason") String overallReason,
+                                   @JsonProperty("score") Double score) {
         this.source = source;
         this.intents = intents == null ? List.of() : List.copyOf(intents);
         this.primary = primary == null ? IntentCategory.UNKNOWN : primary;

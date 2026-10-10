@@ -5,7 +5,7 @@ import { logout } from '../api/auth';
 import { fetchConversations, deleteConversation as deleteRemoteConversation } from '../api/chat';
 import { isClusterAvailable, getClusterUrls } from '../api/config';
 import type { Conversation } from '../store/chatStore';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 function formatTime(ts: number) {
   const d = new Date(ts);
@@ -25,14 +25,16 @@ function ConversationItem({
   isActive,
   onSwitch,
   onDelete,
+  disabled,
 }: {
   conv: Conversation;
   isActive: boolean;
   onSwitch: () => void;
   onDelete: (e: React.MouseEvent) => void;
+  disabled: boolean;
 }) {
   return (
-    <div className={`conv-item${isActive ? ' active' : ''}`} onClick={onSwitch}>
+    <div className={`conv-item${isActive ? ' active' : ''}`} onClick={() => { if (!disabled) onSwitch(); }} aria-disabled={disabled}>
       <svg className="conv-icon" viewBox="0 0 16 16" fill="none">
         <path
           d="M8 1.5C4.41 1.5 1.5 4.06 1.5 7.25c0 1.66.73 3.15 1.89 4.22L2.5 14.5l3.22-1.61c.71.23 1.47.36 2.28.36 3.59 0 6.5-2.56 6.5-5.75S11.59 1.5 8 1.5z"
@@ -49,6 +51,7 @@ function ConversationItem({
         className="conv-delete"
         onClick={onDelete}
         title="删除对话"
+        disabled={disabled}
       >
         <svg viewBox="0 0 12 12" fill="none" width="12" height="12">
           <path
@@ -97,22 +100,36 @@ export default function Sidebar() {
   const setView = useUiStore((s) => s.setView);
   const clusterMode = useUiStore((s) => s.clusterMode);
   const toggleClusterMode = useUiStore((s) => s.toggleClusterMode);
+  const [historyError, setHistoryError] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRetry, setHistoryRetry] = useState(0);
+  // 流式回调更新当前会话，执行中不切换，避免把输出写入另一条历史会话。
+  const runActive = conversations.some(c => c.isThinking);
 
   useEffect(() => {
     let cancelled = false;
-    fetchConversations()
+    const requestedAt = Date.now();
+    const controller = new AbortController();
+    setHistoryError('');
+    setHistoryLoading(true);
+    fetchConversations(controller.signal)
       .then((remote) => {
         if (cancelled || remote.length === 0) return;
 
         const state = useChatStore.getState();
-        const localConvs = state.conversations.filter((c) => !c.isRemote);
         const remoteIds = new Set(remote.map((c) => c.id));
+        const current = state.getCurrentConversation();
+        // 初始化时的空白欢迎页不是历史记录，有历史时自动打开最近会话。
+        // 请求期间用户新建或发送过消息，则保留用户选择。
+        const replaceWelcome = state.conversations.length === 1 && current &&
+          !current.isRemote && current.title === '新对话' && !current.isThinking &&
+          !current.messages.some(m => m.role === 'user');
 
         const merged: Conversation[] = remote.map((c) => {
-          const local = localConvs.find((lc) => lc.id === c.id);
+          const local = state.conversations.find((lc) => lc.id === c.id);
           if (local) {
             // 本地已有同一会话，保留已有消息与快照，仅标记为远端 persisted
-            return { ...local, title: c.title, updatedAt: c.updatedAt, isRemote: true, isLoaded: true };
+            return { ...local, title: c.title, updatedAt: Math.max(local.updatedAt, c.updatedAt), isRemote: true };
           }
           return {
             ...emptyConversation(),
@@ -126,27 +143,33 @@ export default function Sidebar() {
         });
 
         // 保留尚未持久化的本地新建会话
-        const extraLocal = localConvs.filter((c) => !remoteIds.has(c.id));
+        const extraLocal = replaceWelcome ? [] : state.conversations.filter((c) =>
+          !remoteIds.has(c.id) && (!c.isRemote || c.isThinking || c.updatedAt > requestedAt),
+        );
         const all = [...merged, ...extraLocal].sort((a, b) => b.updatedAt - a.updatedAt);
 
         setConversations(all);
-        if (state.currentConversationId) {
+        if (!replaceWelcome && all.some(c => c.id === state.currentConversationId)) {
           // 保留当前选中的会话，避免加载历史时跳走
           return;
         }
         switchConversation(all[0].id);
       })
       .catch((err) => {
+        if (cancelled) return;
         if (err?.message === 'UNAUTHORIZED') {
           clearAuth();
+          return;
         }
-        // 忽略其他加载错误，保留本地新建会话
-      });
+        setHistoryError(err?.message || '会话列表加载失败');
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId, historyRetry]);
 
   const handleLogout = async () => {
     await logout(token ?? '', useAuthStore.getState().tokenName);
@@ -160,9 +183,9 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="sidebar-logo">
         <div className="sidebar-brand">
-          <span className="sidebar-brand-icon">✈</span>
+          <span className="fons-brand-mark" aria-hidden="true">F</span>
           <div>
-            <div className="sidebar-brand-name">GoGo差旅</div>
+            <div className="sidebar-brand-name">Fons 智能差旅</div>
             <div className="sidebar-brand-sub">智能差旅助手</div>
           </div>
         </div>
@@ -172,6 +195,7 @@ export default function Sidebar() {
       <div className="sidebar-new">
         <button
           className="new-chat-btn"
+          disabled={runActive}
           onClick={() => {
             setView('chat');
             createConversation();
@@ -222,12 +246,18 @@ export default function Sidebar() {
       {/* Conversation list */}
       <div className="sidebar-section-label">历史对话</div>
       <div className="conv-list">
+        {historyLoading && <div className="history-status">正在加载会话列表…</div>}
+        {historyError && <div className="history-status" role="alert">
+          会话列表加载失败：{historyError}
+          <button type="button" disabled={runActive} onClick={() => setHistoryRetry(n => n + 1)}>重试</button>
+        </div>}
         {conversations.map((conv) => (
           <ConversationItem
             key={conv.id}
             conv={conv}
             isActive={conv.id === currentConversationId}
-            onSwitch={() => switchConversation(conv.id)}
+            disabled={runActive}
+            onSwitch={() => { setView('chat'); switchConversation(conv.id); }}
             onDelete={async (e) => {
               e.stopPropagation();
               if (conv.isRemote) {
@@ -239,6 +269,8 @@ export default function Sidebar() {
                     return;
                   }
                   console.error('删除对话失败', err);
+                  setHistoryError(`删除会话失败：${err?.message || '未知错误'}`);
+                  return;
                 }
               }
               deleteConversation(conv.id);

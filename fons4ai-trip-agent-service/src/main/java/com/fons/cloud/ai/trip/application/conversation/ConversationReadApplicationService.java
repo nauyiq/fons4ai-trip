@@ -84,6 +84,8 @@ public class ConversationReadApplicationService {
                     .id(chatMessage.getMessageId())
                     .role(chatMessage.getRole().getCode())
                     .content(chatMessage.getContent())
+                    .agentName(chatMessage.getAgentName())
+                    .created(chatMessage.getCreated() == null ? null : chatMessage.getCreated().getTime())
                     .thinking(chatMessage.getThinking())
                     .messageContentType(chatMessage.getType().name())
                     .extra(StringUtils.isBlank(chatMessage.getExtra()) ? null : JSON.parseObject(chatMessage.getExtra()))

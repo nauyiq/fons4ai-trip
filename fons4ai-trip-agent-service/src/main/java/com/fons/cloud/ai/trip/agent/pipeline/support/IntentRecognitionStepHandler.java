@@ -18,7 +18,6 @@ import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.UserMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -94,8 +93,8 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
     private UserMessage buildIntentRecognitionInput(AgentPipelineExecuteContext context) {
         String queryRewriteResult = context.getQueryRewriteResult();
         if (StringUtils.isNotBlank(queryRewriteResult)) {
+            // UserMessage 固定使用 USER 角色，SDK 不允许通过 role() 再次设置。
             return UserMessage.builder()
-                    .role(MsgRole.USER)
                     .name("user")
                     .textContent(queryRewriteResult)
                     .build();

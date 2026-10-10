@@ -16,7 +16,10 @@ function UserBubble({ msg, username }: { msg: Message; username: string }) {
   const initial = username ? username.charAt(0).toUpperCase() : '我';
   return (
     <div className="msg-row user">
-      <div className="msg-user-bubble">{msg.content}</div>
+      <div className="msg-user-bubble">
+        {msg.messageContentType === 'IMAGE' ? <img className="history-message-image" src={msg.content} alt="用户发送的图片" /> :
+          msg.messageContentType === 'VOICE' ? <audio controls src={msg.content} /> : msg.content}
+      </div>
       <div className="msg-avatar user-avatar">{initial}</div>
     </div>
   );
@@ -80,7 +83,7 @@ function ThinkingDots() {
         </svg>
       </div>
       <div className="msg-agent-content">
-        <div className="msg-agent-name">GoGo差旅助手</div>
+        <div className="msg-agent-name">Fons 差旅助手</div>
         <div className="thinking-indicator">
           <span className="dot" />
           <span className="dot" />
@@ -118,6 +121,8 @@ function sanitizeTravelData(td: TravelData | null | undefined): TravelData | nul
 export default function ChatWindow() {
   const [inputText, setInputText] = useState('');
   const [interaction, setInteraction] = useState<UserInteraction | null>(null);
+  const [historyError, setHistoryError] = useState('');
+  const [historyRetry, setHistoryRetry] = useState(0);
   // 【调试后门】直连的目标子智能体，空字符串表示走默认智能调度（MasterAgent）
   const [debugAgent, setDebugAgent] = useState('');
   const [debugAgents, setDebugAgents] = useState<DebugAgentInfo[]>([]);
@@ -140,6 +145,7 @@ export default function ChatWindow() {
   const {
     conversations,
     currentConversationId,
+    bindRemoteConversation,
     addMessage,
     appendToLastAgentMessage,
     addProgressStep,
@@ -167,6 +173,7 @@ export default function ChatWindow() {
   const isThinking = currentConv?.isThinking ?? false;
   const timeline = currentConv?.timeline ?? [];
   const suggestedQuestions = currentConv?.suggestedQuestions ?? [];
+  const historyPending = !!currentConv?.isRemote && !currentConv.isLoaded;
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastAgentIsStreaming =
@@ -174,9 +181,11 @@ export default function ChatWindow() {
 
   // 从后端加载远程会话的历史消息
   useEffect(() => {
-    if (!currentConv || !currentConv.isRemote || currentConv.isLoaded) return;
+    setHistoryError('');
+    if (!currentConv || !currentConv.isRemote || currentConv.isLoaded || currentConv.isThinking) return;
     let cancelled = false;
-    fetchMessages(currentConversationId)
+    const controller = new AbortController();
+    fetchMessages(currentConversationId, controller.signal)
       .then((remoteMessages) => {
         if (cancelled) return;
         const messages: Message[] = remoteMessages.map((m) => ({
@@ -185,26 +194,32 @@ export default function ChatWindow() {
           content: m.content,
           agentName: m.agentName,
           timestamp: m.timestamp,
+          messageContentType: m.messageContentType,
           progress: m.extra?.progress,
           thinkingByAgent: m.extra?.thinkingByAgent,
           planTasks: m.extra?.planTasks,
           travelData: m.extra?.travelData,
-          timeline: m.extra?.timeline,
+          // Trip 单独持久化模型思考，不再依赖 Gogo 的 extra.timeline 快照。
+          timeline: m.thinking ? [{ kind: 'thinking', agentName: m.agentName || 'masterAgent', text: m.thinking }] : m.extra?.timeline,
           feedback: m.feedback ?? null,
           feedbackAt: m.feedbackAt,
         }));
         loadConversationMessages(currentConversationId, messages);
       })
       .catch((err) => {
+        if (cancelled) return;
         if (err?.message === 'UNAUTHORIZED') {
           handleUnauthorized();
+          return;
         }
+        setHistoryError(err?.message || '聊天记录加载失败');
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentConversationId]);
+  }, [currentConversationId, currentConv?.isRemote, currentConv?.isLoaded, currentConv?.isThinking, historyRetry]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -239,6 +254,23 @@ export default function ChatWindow() {
 
   const handleEvent = (event: string, data: string) => {
     switch (event) {
+      case 'conversation_ready': {
+        const { conversationId } = JSON.parse(data) as { conversationId?: string };
+        if (conversationId) bindRemoteConversation(currentConversationId, conversationId);
+        break;
+      }
+      case 'run_ended': {
+        const result = JSON.parse(data) as { state?: string; errorMessage?: string };
+        if (result.state && result.state !== 'completed' && result.state !== 'waiting_approval') {
+          addMessage({
+            id: Math.random().toString(36).slice(2, 10),
+            role: 'system',
+            content: result.errorMessage || `聊天执行${result.state === 'cancelled' ? '已取消' : '失败'}`,
+            timestamp: Date.now(),
+          });
+        }
+        break;
+      }
       case 'agent-switch':
         setActiveAgent(data);
         break;
@@ -519,7 +551,7 @@ export default function ChatWindow() {
   };
 
   const sendText = async (content: string) => {
-    if (interaction) return;
+    if (interaction || historyPending) return;
     if (!content.trim()) return;
 
     // 若正在生成，先打断上一轮回复
@@ -575,7 +607,7 @@ export default function ChatWindow() {
       if (debugAgent) {
         await sendDebugAgentMessageSSE(debugAgent, currentConversationId, content, onEvt, onErr, onDone);
       } else {
-        await sendChatMessageSSE(currentConversationId, content, onEvt, onErr, onDone);
+        await sendChatMessageSSE(currentConv?.isRemote ? currentConversationId : undefined, content, onEvt, onErr, onDone);
       }
     } catch (err: any) {
       setThinking(false);
@@ -611,12 +643,12 @@ export default function ChatWindow() {
   useEffect(() => {
     if (!pendingUserMessage || !currentConversationId) return;
     // 正在处理中或等待用户回答时不自动发送，避免打断
-    if (isThinking || interaction) return;
+    if (isThinking || interaction || historyPending) return;
     const msg = consumePendingUserMessage();
     if (msg) {
       sendTextRef.current(msg);
     }
-  }, [pendingUserMessage, currentConversationId, isThinking, interaction, consumePendingUserMessage]);
+  }, [pendingUserMessage, currentConversationId, isThinking, interaction, historyPending, consumePendingUserMessage]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -664,6 +696,10 @@ export default function ChatWindow() {
 
       {/* Message list */}
       <div className="message-list">
+        {historyPending && <div className="history-status" role={historyError ? 'alert' : 'status'}>
+          {historyError ? `聊天记录加载失败：${historyError}` : '正在加载聊天记录…'}
+          {historyError && <button type="button" onClick={() => setHistoryRetry(n => n + 1)}>重试</button>}
+        </div>}
         {messages.map((msg, idx) => {
           if (msg.role === 'user') return <UserBubble key={msg.id} msg={msg} username={username} />;
           if (msg.role === 'agent') {
@@ -718,7 +754,7 @@ export default function ChatWindow() {
               </svg>
             </div>
             <div className="msg-agent-content">
-              <div className="msg-agent-name">GoGo差旅助手</div>
+              <div className="msg-agent-name">Fons 差旅助手</div>
               <div className="msg-agent-bubble">
                 <UserInteractionCard interaction={interaction} onSubmit={handleRespond} />
               </div>
@@ -731,12 +767,14 @@ export default function ChatWindow() {
 
       {/* Input area */}
       <div className="input-area">
-        <div className={`input-box${isThinking || interaction ? ' disabled' : ''}`}>
+        <div className={`input-box${isThinking || interaction || historyPending ? ' disabled' : ''}`}>
           <textarea
             ref={textareaRef}
             className="input-textarea"
             placeholder={
-              isThinking
+              historyPending
+                ? '聊天记录尚未加载完成'
+                : isThinking
                 ? 'AI 正在处理，请稍候...'
                 : interaction
                 ? '请先回答上方问题'
@@ -745,13 +783,13 @@ export default function ChatWindow() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isThinking || !!interaction}
+            disabled={isThinking || !!interaction || historyPending}
             rows={1}
           />
           <button
             className="send-btn"
             onClick={isThinking ? handleInterrupt : handleSend}
-            disabled={!!interaction || (!isThinking && !inputText.trim())}
+            disabled={!!interaction || historyPending || (!isThinking && !inputText.trim())}
             title={isThinking ? '停止生成' : '发送 (Enter)'}
           >
             {isThinking ? (

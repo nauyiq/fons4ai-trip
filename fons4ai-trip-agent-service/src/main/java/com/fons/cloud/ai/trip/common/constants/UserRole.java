@@ -1,11 +1,20 @@
 package com.fons.cloud.ai.trip.common.constants;
 
+import com.baomidou.mybatisplus.annotation.EnumValue;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
 /**
  * @author hongqy
  */
+@Getter
+@AllArgsConstructor
 public enum UserRole {
 
-    USER,
-    ADMIN
+    USER("USER"),
+    ADMIN("ADMIN");
+    ;
 
+    @EnumValue
+    private final String code;
 }

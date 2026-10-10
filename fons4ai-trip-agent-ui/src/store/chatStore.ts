@@ -32,7 +32,11 @@ interface ChatState {
 
   // Conversation management
   createConversation: () => string;
+  /** 退出登录或切换账号时清理上一用户的会话缓存。 */
+  resetConversations: () => void;
   switchConversation: (id: string) => void;
+  /** 用 Trip 服务端创建的会话 ID 替换首次请求使用的本地临时 ID。 */
+  bindRemoteConversation: (localId: string, remoteId: string) => void;
   deleteConversation: (id: string) => void;
   updateConversationTitle: (id: string, title: string) => void;
 
@@ -104,8 +108,8 @@ const createNewConversation = (): Conversation => ({
       id: generateId(),
       role: 'agent',
       content:
-        '您好！我是 GoGo 差旅助手 ✈️\n\n我可以帮您：\n• 规划出行行程，搜索机票、高铁、酒店\n• 预订机票、高铁票和酒店\n• 查询差旅政策和报销标准\n• 提交和查询审批申请\n• 处理差旅报销\n\n请告诉我您的差旅需求吧，例如：「下周三去上海出差，需要机票和酒店」',
-      agentName: 'GoGo差旅助手',
+        '您好！我是 Fons 差旅助手 ✈️\n\n我可以帮您：\n• 规划出行行程，搜索机票、高铁、酒店\n• 预订机票、高铁票和酒店\n• 查询差旅政策和报销标准\n• 提交和查询审批申请\n• 处理差旅报销\n\n请告诉我您的差旅需求吧，例如：「下周三去上海出差，需要机票和酒店」',
+      agentName: 'Fons 差旅助手',
       timestamp: Date.now(),
     },
   ],
@@ -143,7 +147,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return newConv.id;
   },
 
+  resetConversations: () => {
+    const conversation = createNewConversation();
+    set({ conversations: [conversation], currentConversationId: conversation.id });
+  },
+
   switchConversation: (id) => set({ currentConversationId: id }),
+
+  bindRemoteConversation: (localId, remoteId) => set((state) => ({
+    currentConversationId: state.currentConversationId === localId ? remoteId : state.currentConversationId,
+    conversations: state.conversations.map((conversation) =>
+      conversation.id === localId
+        ? { ...conversation, id: remoteId, isRemote: true, isLoaded: true }
+        : conversation,
+    ),
+  })),
 
   deleteConversation: (id) =>
     set((state) => {

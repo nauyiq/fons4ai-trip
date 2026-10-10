@@ -12,19 +12,22 @@ function authHeaders(): Record<string, string> {
 }
 
 export async function sendChatMessageSSE(
-  sessionId: string,
+  conversationId: string | undefined,
   message: string,
   onEvent: (event: SSEEvent) => void,
   onError?: (err: any) => void,
   onComplete?: () => void,
 ) {
-  const response = await fetch(`${getApiBase()}/api/chat/${sessionId}`, {
+  const response = await fetch(`${getApiBase()}/api/conversation/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(),
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      conversationId,
+      messages: [{ content: message, messageType: 'TEXT' }],
+    }),
   });
 
   // Token 无效或已过期时返回 HTTP 401
@@ -44,11 +47,39 @@ export async function sendChatMessageSSE(
   // 按 SSE 规范，一个事件的多行 data: 字段需要合并后再派发，否则换行符丢失
   let pendingDataLines: string[] = [];
 
+  /** Trip 的 SSE 使用默认 message 事件，实际类型在 JSON 的 type 字段中。 */
+  const dispatchTripEvent = (raw: string) => {
+    const payload = JSON.parse(raw) as { type?: string; content?: string; data?: unknown };
+    switch (payload.type) {
+      case 'text':
+        if (payload.content) onEvent({ event: 'message', data: payload.content });
+        break;
+      case 'thinking':
+        if (payload.content) {
+          onEvent({ event: 'thinking', data: JSON.stringify({ agentName: 'MasterAgent', text: payload.content }) });
+        }
+        break;
+      case 'error':
+        onEvent({ event: 'error', data: payload.content || '聊天执行失败' });
+        break;
+      case 'conversation_ready':
+      case 'run_ended':
+        onEvent({ event: payload.type, data: JSON.stringify(payload.data ?? {}) });
+        break;
+      default:
+        // 其他 Trip 事件由后续前端能力按需接入。
+        break;
+    }
+  };
+
   /** 将当前积累的 data 行合并派发，并重置状态 */
   const flushEvent = () => {
     if (pendingDataLines.length > 0) {
       const data = pendingDataLines.join('\n');
-      if (data) onEvent({ event: currentEvent, data });
+      if (data) {
+        if (currentEvent === 'message') dispatchTripEvent(data);
+        else onEvent({ event: currentEvent, data });
+      }
       pendingDataLines = [];
     }
     currentEvent = 'message';
@@ -265,6 +296,8 @@ export interface RemoteMessage {
   content: string;
   agentName?: string;
   timestamp: number;
+  thinking?: string;
+  messageContentType?: 'TEXT' | 'IMAGE' | 'VOICE';
   extra?: Record<string, any>;
   /** 用户反馈：LIKE 点赞 / DISLIKE 点踩 / undefined 未反馈 */
   feedback?: 'LIKE' | 'DISLIKE' | null;
@@ -366,46 +399,73 @@ export async function sendDebugAgentMessageSSE(
   }
 }
 
-export async function fetchConversations(): Promise<RemoteConversation[]> {
-  const res = await fetch(`${getApiBase()}/api/chat/conversations`, {
-    headers: authHeaders(),
-  });
-
-  if (res.status === 401) {
-    throw new Error('UNAUTHORIZED');
+/** Trip 普通接口使用 R<T> 包装；HTTP 200 不等于业务查询成功。 */
+async function readTripResponse<T>(res: Response): Promise<T> {
+  if (res.status === 401) throw new Error('UNAUTHORIZED');
+  const body = await res.json() as { success: boolean; message?: string; data: T };
+  if (!res.ok || body.success !== true) {
+    throw new Error(body.message || `HTTP ${res.status}`);
   }
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return res.json();
+  return body.data;
 }
 
-export async function fetchMessages(sessionId: string): Promise<RemoteMessage[]> {
-  const res = await fetch(`${getApiBase()}/api/chat/${sessionId}/messages`, {
-    headers: authHeaders(),
+export async function fetchConversations(signal?: AbortSignal): Promise<RemoteConversation[]> {
+  const res = await fetch(`${getApiBase()}/api/conversation/list`, {
+    headers: authHeaders(), signal,
   });
+  const rows = await readTripResponse<Array<{
+    id: string; title: string; created: number; updated: number;
+  }>>(res);
+  return (rows ?? []).map(row => ({
+    id: row.id, title: row.title || '新对话',
+    createdAt: row.created, updatedAt: row.updated,
+  }));
+}
 
-  if (res.status === 401) {
-    throw new Error('UNAUTHORIZED');
+interface TripHistoryMessage {
+  id: string;
+  role: 'user' | 'user_resume' | 'agent' | 'agent_hitl' | 'system';
+  content: string;
+  agentName?: string;
+  created?: number;
+  thinking?: string;
+  messageContentType?: RemoteMessage['messageContentType'];
+  extra?: Record<string, any>;
+  feedback?: RemoteMessage['feedback'];
+  feedbackAt?: number;
+}
+
+/** 当前历史页一次展示完整会话，逐页读取，避免只显示前 50 条而遗漏最新回复。 */
+export async function fetchMessages(conversationId: string, signal?: AbortSignal): Promise<RemoteMessage[]> {
+  const base = getApiBase();
+  const messages = new Map<string, RemoteMessage>();
+  for (let page = 1; ; page++) {
+    const res = await fetch(`${base}/api/conversation/${encodeURIComponent(conversationId)}/messages?page=${page}&pageSize=50`, {
+      headers: authHeaders(), signal,
+    });
+    const data = await readTripResponse<{ pages: number; resultList: TripHistoryMessage[] }>(res);
+    const rows = data?.resultList ?? [];
+    for (const row of rows) {
+      messages.set(row.id, {
+        ...row,
+        role: row.role === 'user_resume' ? 'user' : row.role === 'agent_hitl' ? 'agent' : row.role,
+        content: row.content ?? '',
+        timestamp: row.created ?? 0,
+      });
+    }
+    if (rows.length === 0 || page >= data.pages) break;
   }
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return res.json();
+  // 后端按创建时间和消息 ID 正序分页；保留该顺序，不按收到响应的时间重排。
+  return [...messages.values()];
 }
 
 export async function deleteConversation(sessionId: string): Promise<void> {
-  const res = await fetch(`${getApiBase()}/api/chat/${sessionId}`, {
+  const res = await fetch(`${getApiBase()}/api/conversation/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
 
-  if (res.status === 401) {
-    throw new Error('UNAUTHORIZED');
-  }
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  await readTripResponse<void>(res);
 }
 
 export async function updateConversationTitle(sessionId: string, title: string): Promise<void> {

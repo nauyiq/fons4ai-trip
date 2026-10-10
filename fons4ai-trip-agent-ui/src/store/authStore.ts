@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useChatStore } from './chatStore';
 
 interface AuthState {
   token: string | null;
@@ -22,14 +23,20 @@ export const useAuthStore = create<AuthState>()(
       username: null,
       isAdmin: false,
 
-      setAuth: (token, tokenName, userId, username, isAdmin = false) => set({ token, tokenName, userId, username, isAdmin }),
+      setAuth: (token, tokenName, userId, username, isAdmin = false) => {
+        if (get().userId !== userId) useChatStore.getState().resetConversations();
+        set({ token, tokenName, userId, username, isAdmin });
+      },
 
-      clearAuth: () => set({ token: null, tokenName: null, userId: null, username: null, isAdmin: false }),
+      clearAuth: () => {
+        useChatStore.getState().resetConversations();
+        set({ token: null, tokenName: null, userId: null, username: null, isAdmin: false });
+      },
 
       isLoggedIn: () => !!get().token && !!get().tokenName,
     }),
     {
-      name: 'trip-auth', // 不复用 GoGo 的本地登录态
+      name: 'trip-auth', // 与旧版前端登录态隔离
     },
   ),
 );
