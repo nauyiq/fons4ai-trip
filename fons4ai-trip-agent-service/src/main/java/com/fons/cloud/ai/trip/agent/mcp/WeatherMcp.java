@@ -9,6 +9,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * 天气查询 MCP 客户端配置。
@@ -47,7 +48,12 @@ public class WeatherMcp extends BaseMcp {
     }
 
     @Override
-    protected McpClientWrapper getMcpClient() {
+    public McpClientWrapper getMcpClient() {
         return wrapper;
+    }
+
+    @Override
+    public List<String> getEnabledTools() {
+        return List.of("城市天气实况", "城市15日预报", "城市天气预警", "城市空气实况", "城市24小时预报", "城市40日预报");
     }
 }

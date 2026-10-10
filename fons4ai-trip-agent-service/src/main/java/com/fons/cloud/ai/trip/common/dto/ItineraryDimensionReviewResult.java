@@ -1,7 +1,7 @@
-package com.fons.cloud.ai.trip.common.response;
+package com.fons.cloud.ai.trip.common.dto;
 
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.DimensionReview;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.ReviewIssue;
+import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReview;
+import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 
 import java.util.List;
 
@@ -13,8 +13,8 @@ import java.util.List;
  * @param issues 本维度发现的问题；没有问题时为空列表
  * @author hongqy
  */
-public record ItineraryDimensionReviewResult(DimensionReview dimensionReview,
-                                             List<ReviewIssue> issues) {
+public record ItineraryDimensionReviewResult(ItineraryDimensionReview dimensionReview,
+                                             List<ItineraryReviewIssue> issues) {
 
     public ItineraryDimensionReviewResult {
         issues = issues == null ? List.of() : List.copyOf(issues);

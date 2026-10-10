@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>差旅行程方案</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --brand: #1677ff;
+            --brand-soft: #e6f4ff;
+            --canvas: #f0f2f5;
+            --surface: #ffffff;
+            --surface-soft: #f8faff;
+            --border: #e8e8e8;
+            --text: #1a1a1a;
+            --muted: #8c8c8c;
+            --pass: #389e0d;
+            --pass-soft: #f6ffed;
+            --warning: #ad6800;
+            --warning-soft: #fff7e6;
+            --blocked: #cf1322;
+            --blocked-soft: #fff1f0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--canvas);
+            color: var(--text);
+            font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+                  "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .page { max-width: 860px; margin: 0 auto; padding: 16px; }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .05);
+        }
+        .page-head { padding: 18px 20px; margin-bottom: 12px; }
+        .eyebrow { color: var(--brand); font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+        h1, h2, h3, p { margin-top: 0; }
+        h1 { margin: 5px 0 2px; font-size: 22px; line-height: 1.3; }
+        h2 { font-size: 17px; margin: 0; }
+        h3 { font-size: 14px; margin: 0; }
+        .subtle { color: var(--muted); }
+        .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+        .section { margin-top: 12px; }
+        .section-head { display: flex; align-items: center; gap: 8px; margin: 0 2px 9px; }
+        .section-head::before { content: ""; width: 4px; height: 17px; border-radius: 4px; background: var(--brand); }
+        .featured { border-color: #bae0ff; overflow: hidden; }
+        .featured-top { padding: 17px 20px; background: linear-gradient(135deg, #f0f7ff, #fff 78%); }
+        .heading-row, .summary-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .heading-row { margin-bottom: 10px; }
+        .heading-row h2 { color: #17477e; }
+        .proposal-id { color: var(--muted); font-size: 12px; }
+        .amount { font-size: 25px; line-height: 1.2; font-weight: 700; color: var(--text); white-space: nowrap; }
+        .amount-small { font-size: 18px; font-weight: 700; white-space: nowrap; }
+        .metrics { display: flex; flex-wrap: wrap; gap: 5px 14px; color: #595959; font-size: 12px; }
+        .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+        .tag { padding: 2px 8px; border-radius: 5px; color: #0958d9; background: var(--brand-soft); font-size: 11px; }
+        .status { display: inline-flex; align-items: center; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .status.pass { background: var(--pass-soft); color: var(--pass); }
+        .status.warning { background: var(--warning-soft); color: var(--warning); }
+        .status.blocked { background: var(--blocked-soft); color: var(--blocked); }
+        .leg-list { padding: 2px 20px 8px; }
+        .leg { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 10px; padding: 12px 0; border-top: 1px solid #f0f0f0; }
+        .leg:first-child { border-top: none; }
+        .leg-title { color: var(--muted); font-size: 12px; padding-top: 2px; }
+        .leg-headline { font-weight: 600; }
+        .leg-sub { color: #595959; font-size: 12px; overflow-wrap: anywhere; }
+        .leg-price { font-weight: 600; white-space: nowrap; }
+        .review-box { padding: 14px 18px; }
+        .review-box p { margin: 6px 0 0; }
+        .review-box.warning { border-left: 4px solid #faad14; }
+        .review-box.pass { border-left: 4px solid #73d13d; }
+        .notice-list { margin: 9px 0 0; padding-left: 18px; }
+        .notice-list li { padding: 2px 0; overflow-wrap: anywhere; }
+        .notice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+        .notice-group { border-radius: 8px; background: var(--surface-soft); padding: 9px 12px; font-size: 12px; }
+        .notice-group strong { display: block; margin-bottom: 2px; }
+        .notice-group ul { margin: 0; padding-left: 17px; }
+        .weather { padding: 10px 14px; border-radius: 8px; background: #f0f7ff; color: #31547a; font-size: 12px; margin-top: 10px; }
+        .alternative { padding: 14px 18px; margin-top: 8px; }
+        .alternative .amount-small { color: #262626; }
+        .alternative .summary-row { margin-bottom: 4px; }
+        .alternative details { margin-top: 10px; }
+        .alternative summary { cursor: pointer; color: var(--brand); font-size: 12px; font-weight: 600; }
+        .alternative .leg-list { padding: 5px 0 0; }
+        .alternative .leg { grid-template-columns: 64px minmax(0, 1fr) auto; }
+        .alternative.blocked { border-color: #ffccc7; }
+        .next-step { padding: 13px 16px; background: var(--brand-soft); color: #17477e; }
+        .next-step p { margin: 4px 0 0; }
+        .page-foot { margin: 15px 4px 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+        @media (max-width: 640px) {
+            .page { padding: 8px; }
+            .page-head, .featured-top { padding: 14px; }
+            h1 { font-size: 19px; }
+            .leg-list { padding: 2px 14px 8px; }
+            .leg, .alternative .leg { grid-template-columns: 1fr auto; gap: 2px 8px; }
+            .leg-title { grid-column: 1 / -1; }
+            .leg-price { grid-column: 2; grid-row: 2; }
+            .leg-headline, .leg-sub { padding-right: 4px; }
+            .notice-grid { grid-template-columns: 1fr; }
+            .heading-row, .summary-row { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <header class="card page-head">
+        <div class="eyebrow">TRIP · 差旅行程方案</div>
+        <h1 th:text="${page.route()}">出发地 → 目的地</h1>
+        <div class="meta">
+            <span th:text="${page.dateRange()}">去返日期</span>
+            <span th:if="${page.travelOrderId() != null}" th:text="${'差旅单 ' + page.travelOrderId()}">差旅单</span>
+        </div>
+    </header>
+
+    <section class="section" aria-labelledby="recommend-title">
+        <div class="section-head"><h2 id="recommend-title">推荐方案</h2></div>
+        <article class="card featured">
+            <div class="featured-top">
+                <div class="heading-row">
+                    <div>
+                        <h2 th:text="${'方案 ' + page.recommended().proposalId()}">方案编号</h2>
+                        <span class="proposal-id">已完成多维审核，可供选择</span>
+                    </div>
+                    <span class="status" th:classappend="${page.recommended().verdictStyle()}"
+                          th:text="${page.recommended().verdictLabel()}">审核结论</span>
+                </div>
+                <div class="summary-row">
+                    <div class="metrics">
+                        <span th:text="${'综合评分 ' + page.recommended().overallScore()}">综合评分</span>
+                        <span th:text="${'交通耗时 ' + page.recommended().transitDuration()}">交通耗时</span>
+                    </div>
+                    <strong class="amount" th:text="${page.recommended().totalPrice()}">总价</strong>
+                </div>
+                <div class="tags" th:if="${not #lists.isEmpty(page.recommended().tags())}">
+                    <span class="tag" th:each="tag : ${page.recommended().tags()}" th:text="${tag}">标签</span>
+                </div>
+            </div>
+            <div class="leg-list">
+                <div class="leg" th:each="item : ${page.recommended().travelItems()}">
+                    <div class="leg-title" th:text="${item.title()}">环节</div>
+                    <div>
+                        <div class="leg-headline" th:text="${item.headline()}">名称</div>
+                        <div class="leg-sub" th:text="${item.location()}">地点</div>
+                        <div class="leg-sub" th:text="${item.schedule()}">时间</div>
+                        <div class="leg-sub" th:text="${item.details()}">明细</div>
+                    </div>
+                    <div class="leg-price" th:text="${item.price()}">费用</div>
+                </div>
+            </div>
+        </article>
+    </section>
+
+    <section class="section" aria-labelledby="review-title">
+        <div class="section-head"><h2 id="review-title">审核把关</h2></div>
+        <div class="card review-box" th:classappend="${page.recommended().verdictStyle()}">
+            <strong th:text="${'推荐方案：' + page.recommended().verdictLabel()}">审核结论</strong>
+            <p th:text="${page.reviewSummary()}">审核摘要</p>
+            <ul class="notice-list" th:if="${not #lists.isEmpty(page.recommended().reviewIssues())}">
+                <li th:each="issue : ${page.recommended().reviewIssues()}" th:text="${issue}">审核问题</li>
+            </ul>
+            <div class="notice-grid" th:if="${not #lists.isEmpty(page.recommended().policyViolations())
+                    or not #lists.isEmpty(page.recommended().warnings())
+                    or not #lists.isEmpty(page.recommended().experienceFlags())}">
+                <div class="notice-group" th:if="${not #lists.isEmpty(page.recommended().policyViolations())}">
+                    <strong>政策提示</strong>
+                    <ul><li th:each="note : ${page.recommended().policyViolations()}" th:text="${note}">提示</li></ul>
+                </div>
+                <div class="notice-group" th:if="${not #lists.isEmpty(page.recommended().warnings())}">
+                    <strong>其他提醒</strong>
+                    <ul><li th:each="note : ${page.recommended().warnings()}" th:text="${note}">提醒</li></ul>
+                </div>
+                <div class="notice-group" th:if="${not #lists.isEmpty(page.recommended().experienceFlags())}">
+                    <strong>出行体验</strong>
+                    <ul><li th:each="note : ${page.recommended().experienceFlags()}" th:text="${note}">风险</li></ul>
+                </div>
+            </div>
+            <div class="weather" th:if="${page.weatherSummary() != null}"
+                 th:text="${'规划时参考的天气：' + page.weatherSummary()}">天气摘要</div>
+        </div>
+    </section>
+
+    <section class="section" th:if="${not #lists.isEmpty(page.alternatives())}" aria-labelledby="alternatives-title">
+        <div class="section-head"><h2 id="alternatives-title">其他方案</h2></div>
+        <article class="card alternative" th:each="proposal : ${page.alternatives()}"
+                 th:classappend="${proposal.verdictStyle()}">
+            <div class="summary-row">
+                <div>
+                    <h3 th:text="${'方案 ' + proposal.proposalId()}">方案编号</h3>
+                    <span class="status" th:classappend="${proposal.verdictStyle()}"
+                          th:text="${proposal.verdictLabel()}">审核结论</span>
+                    <span class="subtle" th:if="${not proposal.eligibleForRecommendation()}">当前不可推荐</span>
+                </div>
+                <strong class="amount-small" th:text="${proposal.totalPrice()}">总价</strong>
+            </div>
+            <div class="metrics">
+                <span th:text="${'综合评分 ' + proposal.overallScore()}">综合评分</span>
+                <span th:text="${'交通耗时 ' + proposal.transitDuration()}">交通耗时</span>
+            </div>
+            <div class="tags" th:if="${not #lists.isEmpty(proposal.tags())}">
+                <span class="tag" th:each="tag : ${proposal.tags()}" th:text="${tag}">标签</span>
+            </div>
+            <details>
+                <summary>查看交通、酒店与审核明细</summary>
+                <div class="leg-list">
+                    <div class="leg" th:each="item : ${proposal.travelItems()}">
+                        <div class="leg-title" th:text="${item.title()}">环节</div>
+                        <div>
+                            <div class="leg-headline" th:text="${item.headline()}">名称</div>
+                            <div class="leg-sub" th:text="${item.location()}">地点</div>
+                            <div class="leg-sub" th:text="${item.schedule()}">时间</div>
+                            <div class="leg-sub" th:text="${item.details()}">明细</div>
+                        </div>
+                        <div class="leg-price" th:text="${item.price()}">费用</div>
+                    </div>
+                </div>
+                <ul class="notice-list" th:if="${not #lists.isEmpty(proposal.reviewIssues())}">
+                    <li th:each="issue : ${proposal.reviewIssues()}" th:text="${issue}">审核问题</li>
+                </ul>
+            </details>
+        </article>
+    </section>
+
+    <section class="section card next-step">
+        <strong>下一步</strong>
+        <p>请在对话中回复希望选择的可推荐方案编号，或说明希望调整的条件。展示方案不表示已经审批或预订。</p>
+    </section>
+
+    <footer class="page-foot">
+        <div>价格和余量以实际预订时的服务结果为准；缺失信息以“未提供”显示。</div>
+        <div th:text="${'规划编号 ' + page.planId() + ' · 审核编号 ' + page.reviewId()}">规划及审核编号</div>
+        <div th:text="${'规划时间 ' + page.generatedAt() + ' · 审核时间 ' + page.reviewedAt()}">时间</div>
+    </footer>
+</main>
+</body>
+</html>

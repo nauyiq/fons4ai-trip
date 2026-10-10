@@ -21,6 +21,8 @@ public enum TripAgent {
 
     ITINERARY_PLAN_AGENT("ItineraryPlanAgent", AgentType.BUSINESS_WORKER, "智能行程规划专家, 负责方案生成、比价分析、审核修复闭环"),
 
+    INFO_AGENT("InfoAgent", AgentType.BUSINESS_WORKER, "差旅信息查询助手，负责差旅政策、目的地天气资讯及签证入境信息查询"),
+
     ;
 
     /**

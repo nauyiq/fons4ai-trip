@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.agent.tool;
 
-import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanQueryApplicationService;
+import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.response.ItineraryCandidatesResult;
@@ -33,7 +33,7 @@ public class ItineraryPlanReadTools implements BaseTool {
 
     public static final List<String> TOOLS = List.of("query_itinerary_candidates", "query_itinerary_plan");
 
-    private final ItineraryPlanQueryApplicationService itineraryPlanQueryApplicationService;
+    private final ItineraryPlanApplicationService itineraryPlanApplicationService;
 
     @Tool(name = "query_itinerary_candidates",
             description = "读取当前会话中与指定往返条件完全匹配的累计去程、返程和酒店候选。"
@@ -57,7 +57,7 @@ public class ItineraryPlanReadTools implements BaseTool {
             return R.failed(TripAgentToolResultCode.INVALID_DATE_RANGE.getCode(), dates.error());
         }
         try {
-            ItineraryCandidatesResult result = itineraryPlanQueryApplicationService.getCandidates(
+            ItineraryCandidatesResult result = itineraryPlanApplicationService.getCandidates(
                     owner, origin, destination, dates.departureDate(), dates.returnDate(), adultCount, childAges);
             String message = "累计候选读取完成：去程" + result.outbound().size()
                     + "个、返程" + result.inbound().size() + "个、酒店及房型报价" + result.hotels().size() + "个。";
@@ -87,7 +87,7 @@ public class ItineraryPlanReadTools implements BaseTool {
                 owner.userId(), owner.conversationId(), normalizedPlanId);
 
         try {
-            ItineraryPlanningResult result = itineraryPlanQueryApplicationService.getPlan(owner, normalizedPlanId);
+            ItineraryPlanningResult result = itineraryPlanApplicationService.getPlan(owner, normalizedPlanId);
             if (result == null) {
                 return R.failed(TripAgentToolResultCode.PLAN_NOT_FOUND.getCode(),
                         "当前会话未找到对应的行程规划结果，请使用plan_itinerary实际返回的planId。");

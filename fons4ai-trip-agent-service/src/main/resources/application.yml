@@ -57,6 +57,10 @@ sys:
         service-name: ${spring.application.name}
 
 trip:
+  visa:
+    orizn:
+      # 企业服务级凭据，不向用户或模型索取。
+      api-key: ${ORIZN_API_KEY:}
   mcp:
     tuniu:
       # 企业统一配置的搜索服务凭据，不要求员工提供个人Key。

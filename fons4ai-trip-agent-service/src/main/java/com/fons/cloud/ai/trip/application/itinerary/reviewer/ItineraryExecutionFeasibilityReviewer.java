@@ -1,5 +1,6 @@
 package com.fons.cloud.ai.trip.application.itinerary.reviewer;
 
+import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
 import com.fons.cloud.ai.trip.common.constants.BookingType;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimension;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimensionStatus;
@@ -7,7 +8,7 @@ import com.fons.cloud.ai.trip.common.constants.ItineraryReviewEvidenceSource;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewIssueCode;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewSeverity;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewVerdict;
-import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReviewResult;
+import com.fons.cloud.ai.trip.common.dto.ItineraryDimensionReviewResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.HotelOption;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Metrics;
@@ -15,9 +16,9 @@ import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Scores;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TransportOption;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TripRequest;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.DimensionReview;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.ReviewEvidence;
-import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult.ReviewIssue;
+import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReview;
+import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
+import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
@@ -54,6 +55,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
     @Override
     public ItineraryDimensionReviewResult review(ItineraryPlanningResult planningResult,
                                                   ItineraryReviewContext context) {
+        // 1. 校验规划标识、行程条件和代表方案是否完整且可稳定引用
         if (planningResult == null || StringUtils.isBlank(planningResult.getPlanId())
                 || planningResult.getUserRequest() == null) {
             return result(ItineraryReviewDimensionStatus.FAILED, null, List.of(),
@@ -79,7 +81,8 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                     "规划结果包含重复proposalId，无法形成稳定审核引用");
         }
 
-        List<ReviewIssue> issues = new ArrayList<>();
+        // 2. 记录规划级日期范围与币种问题，再继续检查各方案
+        List<ItineraryReviewIssue> issues = new ArrayList<>();
         List<String> allProposalIds = proposals.stream().map(Proposal::proposalId).toList();
         if (!request.returnDate().isAfter(request.departureDate())) {
             addPlanIssue(issues, ItineraryReviewIssueCode.TRIP_DATE_RANGE_INVALID,
@@ -92,9 +95,11 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                     planningResult, allProposalIds, "currency", planningResult.getCurrency(),
                     PLANNING_CURRENCY, true, "规划结果币种缺失或不是当前支持的CNY");
         }
+        // 3. 逐方案检查交通、住宿、时间顺序以及费用和耗时指标
         for (Proposal proposal : proposals) {
             reviewProposal(planningResult, request, proposal, issues);
         }
+        // 4. 汇总阻断问题，形成方案执行可行性维度的结论
         ItineraryReviewVerdict verdict = ItineraryReviewSupport.verdictOf(issues);
         String summary = issues.isEmpty()
                 ? "所有代表方案的路线、日期、时间顺序、住宿区间和计算指标均可执行"
@@ -105,7 +110,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
     private void reviewProposal(ItineraryPlanningResult planningResult,
                                 TripRequest request,
                                 Proposal proposal,
-                                List<ReviewIssue> issues) {
+                                List<ItineraryReviewIssue> issues) {
         TransportOption outbound = proposal.outbound();
         HotelOption hotel = proposal.hotel();
         TransportOption inbound = proposal.inbound();
@@ -146,7 +151,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                                      Proposal proposal,
                                      String component,
                                      Object value,
-                                     List<ReviewIssue> issues) {
+                                     List<ItineraryReviewIssue> issues) {
         if (value != null) {
             return true;
         }
@@ -164,7 +169,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                                  String expectedOrigin,
                                  String expectedDestination,
                                  LocalDate expectedDate,
-                                 List<ReviewIssue> issues) {
+                                 List<ItineraryReviewIssue> issues) {
         String referenceId = StringUtils.defaultIfBlank(transport.candidateId(), proposal.proposalId());
         if (StringUtils.isBlank(transport.candidateId())) {
             addIssue(issues, ItineraryReviewIssueCode.PROPOSAL_COMPONENT_MISSING,
@@ -183,7 +188,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
             addIssue(issues, ItineraryReviewIssueCode.TRANSPORT_ROUTE_MISMATCH,
                     planningResult, proposal, referenceId, fieldPrefix + ".route",
                     transport.origin() + "→" + transport.destination(),
-                    expectedOrigin + "→" + expectedDestination, true,
+                    expectedOrigin + "→" + expectedDestination, ItineraryReviewSeverity.WARNING, true,
                     direction + "交通路线与规划行程不一致");
         }
         if (transport.departureTime() == null || transport.arrivalTime() == null) {
@@ -225,7 +230,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                              Proposal proposal,
                              HotelOption hotel,
                              TripRequest request,
-                             List<ReviewIssue> issues) {
+                             List<ItineraryReviewIssue> issues) {
         String referenceId = StringUtils.defaultIfBlank(hotel.candidateId(), proposal.proposalId());
         if (StringUtils.isAnyBlank(hotel.candidateId(), hotel.name(), hotel.city(), hotel.roomType())) {
             addIssue(issues, ItineraryReviewIssueCode.PROPOSAL_COMPONENT_MISSING,
@@ -261,7 +266,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
     private void reviewScores(ItineraryPlanningResult planningResult,
                               Proposal proposal,
                               Scores scores,
-                              List<ReviewIssue> issues) {
+                              List<ItineraryReviewIssue> issues) {
         if (scores != null && scores.overall() != null
                 && scores.overall().compareTo(BigDecimal.ZERO) >= 0
                 && scores.overall().compareTo(BigDecimal.valueOf(100)) <= 0) {
@@ -279,7 +284,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                                HotelOption hotel,
                                TransportOption inbound,
                                Metrics metrics,
-                               List<ReviewIssue> issues) {
+                               List<ItineraryReviewIssue> issues) {
         if (!canRecalculate(outbound, hotel, inbound, metrics)) {
             addIssue(issues, ItineraryReviewIssueCode.PROPOSAL_METRICS_MISMATCH,
                     planningResult, proposal, proposal.proposalId(), "metrics",
@@ -329,7 +334,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                 && metrics.stayHours() != null;
     }
 
-    private void compareMetric(List<ReviewIssue> issues,
+    private void compareMetric(List<ItineraryReviewIssue> issues,
                                ItineraryPlanningResult planningResult,
                                Proposal proposal,
                                String field,
@@ -344,7 +349,7 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                 "方案计算指标不一致：" + field);
     }
 
-    private void addIssue(List<ReviewIssue> issues,
+    private void addIssue(List<ItineraryReviewIssue> issues,
                           ItineraryReviewIssueCode code,
                           ItineraryPlanningResult planningResult,
                           Proposal proposal,
@@ -354,15 +359,31 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                           String expected,
                           boolean repairable,
                           String message) {
-        String issueId = code.name() + ":" + proposal.proposalId() + ":" + field;
-        ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
-                StringUtils.defaultIfBlank(referenceId, proposal.proposalId()), field,
-                planningResult.getGeneratedAt(), actual, expected);
-        issues.add(new ReviewIssue(issueId, code, dimension(), ItineraryReviewSeverity.BLOCKING,
-                true, repairable, List.of(proposal.proposalId()), List.of(evidence), message));
+        addIssue(issues, code, planningResult, proposal, referenceId, field, actual, expected,
+                ItineraryReviewSeverity.BLOCKING, repairable, message);
     }
 
-    private void addPlanIssue(List<ReviewIssue> issues,
+    private void addIssue(List<ItineraryReviewIssue> issues,
+                          ItineraryReviewIssueCode code,
+                          ItineraryPlanningResult planningResult,
+                          Proposal proposal,
+                          String referenceId,
+                          String field,
+                          String actual,
+                          String expected,
+                          ItineraryReviewSeverity severity,
+                          boolean repairable,
+                          String message) {
+        String issueId = code.name() + ":" + proposal.proposalId() + ":" + field;
+        ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
+                StringUtils.defaultIfBlank(referenceId, proposal.proposalId()), field,
+                planningResult.getGeneratedAt(), actual, expected);
+        issues.add(new ItineraryReviewIssue(issueId, code, dimension(), severity,
+                severity == ItineraryReviewSeverity.BLOCKING, repairable,
+                List.of(proposal.proposalId()), List.of(evidence), message));
+    }
+
+    private void addPlanIssue(List<ItineraryReviewIssue> issues,
                               ItineraryReviewIssueCode code,
                               ItineraryPlanningResult planningResult,
                               List<String> proposalIds,
@@ -371,19 +392,19 @@ public final class ItineraryExecutionFeasibilityReviewer implements ItineraryDim
                               String expected,
                               boolean repairable,
                               String message) {
-        ReviewEvidence evidence = new ReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
+        ItineraryReviewEvidence evidence = new ItineraryReviewEvidence(ItineraryReviewEvidenceSource.PLAN_RESULT,
                 planningResult.getPlanId(), field, planningResult.getGeneratedAt(),
                 String.valueOf(actual), expected);
-        issues.add(new ReviewIssue(code.name(), code, dimension(), ItineraryReviewSeverity.BLOCKING,
+        issues.add(new ItineraryReviewIssue(code.name(), code, dimension(), ItineraryReviewSeverity.BLOCKING,
                 true, repairable, proposalIds, List.of(evidence), message));
     }
 
     private ItineraryDimensionReviewResult result(ItineraryReviewDimensionStatus status,
                                                   ItineraryReviewVerdict verdict,
-                                                  List<ReviewIssue> issues,
+                                                  List<ItineraryReviewIssue> issues,
                                                   String summary) {
-        List<String> issueIds = issues.stream().map(ReviewIssue::issueId).toList();
-        DimensionReview dimensionReview = new DimensionReview(dimension(), status,
+        List<String> issueIds = issues.stream().map(ItineraryReviewIssue::issueId).toList();
+        ItineraryDimensionReview dimensionReview = new ItineraryDimensionReview(dimension(), status,
                 reviewerType(), reviewerVersion(), verdict, issueIds, summary);
         return new ItineraryDimensionReviewResult(dimensionReview, issues);
     }
