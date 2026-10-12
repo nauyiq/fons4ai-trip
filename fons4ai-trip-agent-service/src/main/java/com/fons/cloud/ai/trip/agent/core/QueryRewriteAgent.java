@@ -1,7 +1,7 @@
 package com.fons.cloud.ai.trip.agent.core;
 
 import com.fons.cloud.ai.trip.infrastructure.config.properties.QueryRewriteAgentConfigProperties;
-import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
+import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
 import com.fons.cloud.ai.trip.infrastructure.util.ExtractUtils;
 import com.fons.cloud.ai.trip.infrastructure.util.ModelFacade;
 import io.agentscope.core.agent.AgentBase;

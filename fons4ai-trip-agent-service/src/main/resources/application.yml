@@ -81,11 +81,11 @@ trip:
      strong-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.8-flash
+       model-name: kimi-k3
      strong-thing-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.8-flash
+       model-name: kimi-k3
      stable-model:
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}

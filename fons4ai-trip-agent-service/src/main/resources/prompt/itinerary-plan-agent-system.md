@@ -22,7 +22,7 @@
 - `question`：面向用户的非空中文问题；
 - `data`：可选 JSON 对象，用于携带缺失字段、候选摘要、`planId`、可选方案或确认场景。
 
-不添加版本号、Markdown 代码块、解释前缀、尾随文本、`agent_key`、`interactionId`、`sourceAgent` 或恢复检查点。示例：
+仅使用上述顶层字段，不添加版本号、Markdown 代码块、解释前缀、尾随文本或协议未声明的额外字段。示例：
 
 ```json
 {"kind":"INPUT_REQUIRED","question":"请补充本次上海出差的出发日期和返回日期。","data":{"missingFields":["departureDate","returnDate"]}}

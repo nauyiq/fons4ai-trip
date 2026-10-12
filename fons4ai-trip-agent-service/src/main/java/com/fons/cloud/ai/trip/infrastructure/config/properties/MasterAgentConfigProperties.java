@@ -47,4 +47,22 @@ public class MasterAgentConfigProperties {
      * 上下文压缩配置
      */
     private CompressConfig compress = new CompressConfig();
+
+    /** Master的委派技术约束；不影响子Agent内部的业务工具或计划看板。 */
+    private DelegationConfig delegation = new DelegationConfig();
+
+    /** 仅配置当前委派模式，不提前引入重试、熔断或模型降级配置。 */
+    @Getter
+    @Setter
+    public static class DelegationConfig {
+
+        /** 首次委派必须提供非空task，默认开启。 */
+        private boolean requireInitialTask = true;
+
+        /** 同步取得子Agent结果，不提升为后台任务，默认开启。 */
+        private boolean forceSync = true;
+
+        /** 同步等待上限，单位秒，SDK允许1到600秒；独立于普通工具执行超时。 */
+        private int syncTimeoutSeconds = 600;
+    }
 }

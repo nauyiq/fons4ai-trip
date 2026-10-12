@@ -10,7 +10,7 @@ import com.fons.cloud.ai.trip.common.dto.ItinerarySubjectiveAssessment;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
 import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySubjectiveAssessmentGateway;
-import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
+import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
 import com.fons.cloud.ai.trip.infrastructure.util.ExtractUtils;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import io.agentscope.core.message.Msg;

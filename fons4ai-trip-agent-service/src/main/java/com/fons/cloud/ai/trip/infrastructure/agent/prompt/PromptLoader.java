@@ -1,7 +1,6 @@
-package com.fons.cloud.ai.trip.infrastructure.prompt;
+package com.fons.cloud.ai.trip.infrastructure.agent.prompt;
 
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;

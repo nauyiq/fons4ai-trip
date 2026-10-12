@@ -7,14 +7,15 @@ import com.fons.cloud.ai.agent.core.AgentTaskManager;
 import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceMiddleware;
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.mcp.WeatherMcp;
+import com.fons.cloud.ai.trip.infrastructure.middleware.AgentScopeDelegationMiddleware;
+import com.fons.cloud.ai.trip.infrastructure.agent.delegation.AgentScopeDelegationPolicy;
 import com.fons.cloud.ai.trip.infrastructure.middleware.AnalysisAgentMiddleware;
-import com.fons.cloud.ai.trip.infrastructure.middleware.MasterDispatchMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.CompressConfig;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.MasterAgentConfigProperties;
 import com.fons.cloud.ai.trip.agent.tool.*;
 import com.fons.cloud.ai.trip.infrastructure.util.ModelFacade;
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddleware;
-import com.fons.cloud.ai.trip.infrastructure.prompt.PromptLoader;
+import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.ToolkitConfig;
@@ -55,8 +56,6 @@ public class MasterAgentConfig {
     private final TripTimeContextMiddleware tripTimeContextMiddleware;
     // 将Pipeline分析结果临时注入MasterAgent的模型输入
     private final AnalysisAgentMiddleware analysisAgentMiddleware;
-    // 仅约束Master的串行委派，不影响专业子Agent的工具及审批配置
-    private final MasterDispatchMiddleware masterDispatchMiddleware;
     // 持久化当前会话Agent身份的中间件
     private final ActiveAgentPersistenceMiddleware activeAgentPersistenceMiddleware;
 
@@ -164,7 +163,6 @@ public class MasterAgentConfig {
                 .name(TripAgent.MASTER_AGENT.getAgentName())
                 .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
                 .middleware(analysisAgentMiddleware)
-                .middleware(masterDispatchMiddleware)
                 // 即使模型一次返回多个调用，也按顺序执行；子Agent仍使用各自的Toolkit。
                 .toolkit(new Toolkit(ToolkitConfig.builder().parallel(false).build()));
 
@@ -179,7 +177,14 @@ public class MasterAgentConfig {
         masterBuilder.subagentFactory(TripAgent.INFO_AGENT.getAgentName(), TripAgent.INFO_AGENT.getDescription(),
                 name -> infoAgent);
 
-        // 采用fons4ai契约的agent实例
+        // 中间件只处理委派技术约束；Agent装配和构建仍由配置类负责。
+        MasterAgentConfigProperties.DelegationConfig delegation = properties.getDelegation();
+        AgentScopeDelegationMiddleware delegationMiddleware = new AgentScopeDelegationMiddleware(
+                new AgentScopeDelegationPolicy(delegation.isRequireInitialTask(),
+                        delegation.isForceSync(), delegation.getSyncTimeoutSeconds()));
+        masterBuilder.middleware(delegationMiddleware);
+
+        // 保留fons4ai契约、任务管理、INPUT_REQUIRED及审批处理，不另建调度器。
         return AgentScopeHarnessAgent.builder()
                 .agentName(TripAgent.MASTER_AGENT.getAgentName())
                 .agentType(AgentType.HARNESS)

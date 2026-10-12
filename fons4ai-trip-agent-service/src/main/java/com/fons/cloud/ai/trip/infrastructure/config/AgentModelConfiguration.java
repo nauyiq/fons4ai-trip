@@ -42,7 +42,7 @@ public class AgentModelConfiguration {
                 .baseUrl(config.getBaseUrl())
                 .modelName(config.getModelName())
                 .apiKey(config.getApiKey())
-                .enableThinking(true)
+                .enableThinking(false)
                 .build();
     }
 
