@@ -90,6 +90,12 @@ public class TravelOrderDomainServiceImpl extends ServiceImpl<TravelOrderMapper,
     }
 
     @Override
+    public List<TravelOrder> findListByUserId(String userId) {
+        LambdaQueryWrapper<TravelOrder> wrapper = Wrappers.lambdaQuery(TravelOrder.class).eq(TravelOrder::getUserId, userId).orderByDesc(TravelOrder::getCreated);
+        return list(wrapper);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public CancelOderOutcome cancelWithApproval(TravelOrder order, String reason) {
         order.cancel();

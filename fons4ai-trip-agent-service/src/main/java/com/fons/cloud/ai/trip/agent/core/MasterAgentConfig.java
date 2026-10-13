@@ -15,6 +15,7 @@ import com.fons.cloud.ai.trip.infrastructure.config.properties.MasterAgentConfig
 import com.fons.cloud.ai.trip.agent.tool.*;
 import com.fons.cloud.ai.trip.infrastructure.util.ModelFacade;
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddleware;
+import com.fons.cloud.ai.trip.infrastructure.middleware.TripToolExecutionGuardMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.tool.Toolkit;
@@ -34,6 +35,9 @@ import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 主Agent，负责Agent的路由/多意图识别/结果整合等
@@ -92,6 +96,8 @@ public class MasterAgentConfig {
                 .name(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName())
                 .description(TripAgent.ITINERARY_MANAGE_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-manage-agent-system.md"))
+                .middleware(businessToolGuard(Set.of(), bookingReadTools, travelOrderReadTools,
+                        travelOrderWriteTools, travelOrderConflictTools, userInfoReadTools, userInfoWriteTools))
                 .toolkit(toolkit)
                 .disableSubagents()
                 .build();
@@ -125,6 +131,10 @@ public class MasterAgentConfig {
                 .description(TripAgent.ITINERARY_PLAN_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-plan-agent-system.md"))
                 .enableTaskList(true)
+                // 天气和目的地资讯属于可选补充，其失败不能把已完成的核心规划永久阻塞。
+                .middleware(businessToolGuard(Set.copyOf(DestinationLiveTools.TOOLS), bookingReadTools,
+                        userInfoReadTools, userInfoWriteTools, travelOrderReadTools, destinationLiveTools,
+                        policyTools, itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools))
                 .toolkit(toolkit)
                 .disableSubagents()
                 .build();
@@ -148,6 +158,7 @@ public class MasterAgentConfig {
                 .name(TripAgent.INFO_AGENT.getAgentName())
                 .description(TripAgent.INFO_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/info-agent-system.md"))
+                .middleware(businessToolGuard(Set.of(), policyTools, destinationLiveTools, visaTools))
                 .toolkit(toolkit)
                 .disableSubagents()
                 .build();
@@ -181,7 +192,8 @@ public class MasterAgentConfig {
         MasterAgentConfigProperties.DelegationConfig delegation = properties.getDelegation();
         AgentScopeDelegationMiddleware delegationMiddleware = new AgentScopeDelegationMiddleware(
                 new AgentScopeDelegationPolicy(delegation.isRequireInitialTask(),
-                        delegation.isForceSync(), delegation.getSyncTimeoutSeconds()));
+                        delegation.isForceSync(), delegation.getSyncTimeoutSeconds(),
+                        delegation.isBlockPendingApproval()));
         masterBuilder.middleware(delegationMiddleware);
 
         // 保留fons4ai契约、任务管理、INPUT_REQUIRED及审批处理，不另建调度器。
@@ -192,6 +204,19 @@ public class MasterAgentConfig {
                 .delegateBuilder(masterBuilder)
                 .inputRequiredEnabled(true)
                 .build();
+    }
+
+    /**
+     * 只适配本Agent实际装配的Trip业务工具，文件、记忆、MCP及委派工具仍走SDK原生链路。
+     * 单例中间件不持有请求计数；每次Agent调用的失败记录由RuntimeContext独立管理。
+     */
+    private TripToolExecutionGuardMiddleware businessToolGuard(Set<String> nonBlockingTodoTools,
+                                                               BaseTool... toolGroups) {
+        Set<String> toolNames = Arrays.stream(toolGroups)
+                .flatMap(group -> group.tools().stream())
+                .collect(Collectors.toUnmodifiableSet());
+        return new TripToolExecutionGuardMiddleware(toolNames, properties.getToolFailureLimit(),
+                nonBlockingTodoTools);
     }
 
     private HarnessAgent.Builder commonBuilder() {

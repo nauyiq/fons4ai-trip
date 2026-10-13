@@ -1,5 +1,6 @@
 package com.fons.cloud.ai.trip.infrastructure.middleware;
 
+import com.alibaba.fastjson2.JSON;
 import com.fons.cloud.ai.trip.infrastructure.agent.delegation.AgentScopeDelegationPolicy;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import io.agentscope.core.ReActAgent;
@@ -9,19 +10,27 @@ import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
+import io.agentscope.core.message.ToolCallState;
 import io.agentscope.core.message.ToolResultBlock;
+import io.agentscope.core.message.ToolResultState;
+import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.middleware.ModelCallInput;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionDecision;
 import io.agentscope.core.permission.PermissionRule;
+import io.agentscope.core.state.AgentState;
+import io.agentscope.core.state.ToolContextState.SpawnEntry;
 import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.subagent.DefaultAgentManager;
 import io.agentscope.harness.agent.tool.AgentSpawnTool;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,7 +48,9 @@ import java.util.function.Function;
  * 后续调用只检查初始化标记，不重复注册。并发首次调用通过Toolkit锁串行初始化。
  * 真实工具Schema同时用于模型声明和SDK参数校验，避免只修改提示而没有执行约束。
  * 可纠正的调用错误返回原生工具错误结果，继续由SDK发布事件、保存历史并让模型纠错；
- * 有效调用、权限审批、中断和INPUT_REQUIRED均交给原生链路处理。</p>
+ * 有效调用、权限审批、中断和INPUT_REQUIRED均交给原生链路处理。
+ * 等待审批保护只读取子会话状态、拒绝绕过审批的普通委派；不批准工具、不恢复子会话，
+ * 也不将子会话的等待状态伪装成父Agent的WAITING_APPROVAL。</p>
  *
  * <p>该组件不依赖Trip业务配置和子Agent类型。只适配Harness原生、无分组及预置参数的
  * 委派工具，不能直接用于任意MCP或业务工具的重注册。</p>
@@ -69,7 +80,7 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
     public Flux<AgentEvent> onAgent(Agent agent, RuntimeContext context, AgentInput input,
             Function<AgentInput, Flux<AgentEvent>> next) {
         return Flux.defer(() -> {
-            if (policy.requireInitialTask() || policy.forceSync()) {
+            if (policy.requireInitialTask() || policy.forceSync() || policy.blockPendingApproval()) {
                 if (!(agent instanceof ReActAgent nativeAgent)) {
                     throw SystemIntervalException.of("委派中间件需要AgentScope原生ReActAgent");
                 }
@@ -91,7 +102,7 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
     public Flux<AgentEvent> onModelCall(Agent agent, RuntimeContext context, ModelCallInput input,
             Function<ModelCallInput, Flux<AgentEvent>> next) {
         return Flux.defer(() -> {
-            if (!policy.requireInitialTask() && !policy.forceSync()) {
+            if (!policy.requireInitialTask() && !policy.forceSync() && !policy.blockPendingApproval()) {
                 return next.apply(input);
             }
             // 此处只过滤可见工具，参数声明已经在真实Toolkit中适配，不维护第二份Schema。
@@ -132,9 +143,17 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
                     + "同步成功结果已经包含本次执行的回复，不只是创建回执；"
                     + "不要为获取同一个结果重复发送原任务或调用后台轮询工具。\n");
         }
+        if (policy.blockPendingApproval()) {
+            instructions.append("子Agent工具结果中的waiting_approval表示该子会话仍需用户审批，"
+                    + "不是业务执行成功，也不是可重试的普通工具故障。"
+                    + "不要更换label或新建同类型子会话绕过审批，"
+                    + "也不要使用agent_send发送普通消息代替审批。"
+                    + "请保留已产生的部分结果，向用户说明受阻原因，不继续推进依赖审批的步骤。\n");
+        }
         return instructions.append("参数校验或策略拒绝会作为工具错误结果返回。"
                 + "请根据错误修正调用，不要原样重复无效参数，也不要把错误当成业务成功结果。\n"
-                + "agent_send的agent_key使用agent_spawn返回的原始agent_key或创建时的label，优先使用原始agent_key，"
+                + "agent_send使用agent_key传入agent_spawn返回的原始agent_key，或使用label传入创建时的label，"
+                + "两者不能同时传入，优先使用原始agent_key；"
                 + "不能使用agent_id、session_id或task_id代替。").toString();
     }
 
@@ -171,8 +190,11 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
                             + (policy.forceSync() ? "强制同步等待，超时不转为后台任务。" : "支持SDK原生同步或异步模式。");
                 } else if (send && policy.forceSync()) {
                     description = "向已有子Agent发送后续任务并同步等待结果。"
-                            + "agent_key必须使用agent_spawn返回的原始agent_key或创建时的label，"
+                            + "agent_key必须使用agent_spawn返回的原始agent_key，或改用label参数传入创建时的label，"
                             + "不能使用agent_id、session_id或task_id；超时不转为后台任务。";
+                }
+                if ((spawn || send) && policy.blockPendingApproval()) {
+                    description += "已有子会话等待工具审批时，不允许普通消息继续执行或新建同类型会话绕过审批。";
                 }
                 adaptedTools.add(new DelegationTool(delegate, description, parameters, denied, policy));
             }
@@ -247,8 +269,157 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
                         + "请使用已经返回的同步结果，不要轮询后台任务。"));
             }
             // task的实际Schema校验由SDK ToolExecutor完成，不再在onActing抛流异常。
-            // 不捕获ToolSuspendException、不转换原生结果，保留审批及INPUT_REQUIRED语义。
-            return delegate.callAsync(param);
+            // 关闭保护时直接使用原生语义；后台工具也不参与子会话检查。
+            if (!delegationPolicy.blockPendingApproval()
+                    || (!"agent_spawn".equals(getName()) && !"agent_send".equals(getName()))) {
+                return delegate.callAsync(param);
+            }
+            // 先读取父登记表关联的真实子状态，拒绝普通send或同类型spawn绕过已有审批。
+            // 检查失败也返回工具错误，不允许以“状态未知”作为继续执行的依据。
+            return inspectApproval(param).flatMap(before -> {
+                if (before.error() != null || !before.pending().isEmpty()) {
+                    return Mono.just(approvalResult(param, before, null));
+                }
+                // 不捕获原生执行异常或ToolSuspendException，保留原权限、中断及取消链路。
+                return delegate.callAsync(param).flatMap(result ->
+                        // SDK在返回子Msg前已保存状态；此处纠正原生委派将ASKING格式化为ok的结果。
+                        inspectApproval(param).map(after -> after.error() == null && after.pending().isEmpty()
+                                ? result : approvalResult(param, after, result)));
+            });
+        }
+
+        /**
+         * 状态存储接口是同步的，读取及子对象解析在boundedElastic上执行，不阻塞模型事件线程。
+         * 错误仅在本次状态检查中转换；不会吞掉原生工具执行异常。
+         */
+        private Mono<ApprovalCheck> inspectApproval(ToolCallParam param) {
+            return Mono.fromCallable(() -> readApproval(param))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .onErrorResume(error -> Mono.just(new ApprovalCheck(List.of(),
+                            "无法确认子会话审批状态，已阻止委派：" + error.getMessage())));
+        }
+
+        /** 只读检查SDK登记的会话，不创建新session、不修改子历史或工具权限状态。 */
+        private ApprovalCheck readApproval(ToolCallParam param) {
+            RuntimeContext context = param.getRuntimeContext();
+            AgentState parent = RuntimeContext.resolveAgentState(context, param.getAgent());
+            if (context == null || parent == null) {
+                throw SystemIntervalException.of("当前调用缺少父Agent运行上下文或状态");
+            }
+            if (!(context.get(AgentSpawnTool.CTX_AGENT_MANAGER) instanceof DefaultAgentManager manager)) {
+                throw SystemIntervalException.of("当前调用缺少SDK子Agent管理器");
+            }
+            List<SpawnEntry> entries = parent.getToolContext().getSpawnRegistry().values().stream()
+                    .filter(entry -> matchesTarget(entry, param.getInput()))
+                    .toList();
+            if ("agent_send".equals(getName()) && entries.isEmpty()) {
+                throw SystemIntervalException.of("子会话未登记，须使用原始agent_key或通过label参数指定创建时的label");
+            }
+            List<PendingApproval> pending = new ArrayList<>();
+            for (SpawnEntry entry : entries) {
+                // 子类型从父登记表解析；SDK factory可能返回Harness或ReActAgent，均使用公开API。
+                Agent child = manager.createAgentIfPresent(entry.agentId(), context)
+                        .orElseThrow(() -> SystemIntervalException.of("已登记的子Agent类型无法解析：" + entry.agentId()));
+                ReActAgent nativeChild;
+                if (child instanceof ReActAgent reactAgent) {
+                    nativeChild = reactAgent;
+                } else if (child instanceof HarnessAgent harnessAgent) {
+                    nativeChild = harnessAgent.getDelegate();
+                } else {
+                    throw SystemIntervalException.of("已登记的子Agent不支持读取AgentScope状态：" + entry.agentId());
+                }
+                // 直接读store而非getAgentState缓存，避免另一节点已恢复、当前节点仍看到旧ASKING。
+                if (nativeChild.getStateStore() == null) {
+                    throw SystemIntervalException.of("已登记的子Agent未提供状态存储：" + entry.agentId());
+                }
+                AgentState state = nativeChild.getStateStore()
+                        .get(context.getUserId(), entry.sessionId(), "agent_state", AgentState.class)
+                        .orElseThrow(() -> SystemIntervalException.of("已登记的子会话状态不存在：" + entry.sessionId()));
+                List<ToolUseBlock> asking = pendingToolCalls(state);
+                if (!asking.isEmpty()) {
+                    pending.add(new PendingApproval(entry, asking));
+                }
+            }
+            return new ApprovalCheck(List.copyOf(pending), null);
+        }
+
+        /** spawn按子类型检查全部已有会话；send按SDK互斥的agent_key或label参数定位。 */
+        private boolean matchesTarget(SpawnEntry entry, Map<String, Object> input) {
+            if ("agent_spawn".equals(getName())) {
+                return entry.agentId().equals(input.get("agent_id"));
+            }
+            Object key = input.get("agent_key");
+            if (key instanceof String text && !text.isBlank()) {
+                return entry.key().equals(text.trim());
+            }
+            Object label = input.get("label");
+            return label instanceof String text && !text.isBlank() && entry.label() != null
+                    && entry.label().equalsIgnoreCase(text.trim());
+        }
+
+        /**
+         * 与SDK恢复入口一致：只检查最后assistant的ASKING，且必须尚无相同id的工具结果。
+         * 历史ASKING或已写入拒绝结果的调用不能误判为仍待审批。
+         */
+        private List<ToolUseBlock> pendingToolCalls(AgentState state) {
+            List<Msg> messages = state.getContext();
+            Set<String> resultIds = messages.stream()
+                    .flatMap(message -> message.getContentBlocks(ToolResultBlock.class).stream())
+                    .map(ToolResultBlock::getId)
+                    .collect(java.util.stream.Collectors.toSet());
+            for (int index = messages.size() - 1; index >= 0; index--) {
+                Msg message = messages.get(index);
+                if (message.getRole() == MsgRole.ASSISTANT) {
+                    return message.getContentBlocks(ToolUseBlock.class).stream()
+                            .filter(tool -> tool.getState() == ToolCallState.ASKING && !resultIds.contains(tool.getId()))
+                            .toList();
+                }
+            }
+            return List.of();
+        }
+
+        /**
+         * 输出真实ERROR结果，由SDK统一保存、发布及关联外层toolCallId；子key/sessionId不被替换。
+         * 后置检查保留原同步输出，供父Agent引用部分内容，但明确其不代表业务成功。
+         */
+        private ToolResultBlock approvalResult(ToolCallParam param, ApprovalCheck check, ToolResultBlock original) {
+            boolean waiting = check.error() == null;
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("status", waiting ? "waiting_approval" : "state_unavailable");
+            detail.put("code", waiting ? "SUBAGENT_WAITING_APPROVAL" : "SUBAGENT_STATE_UNAVAILABLE");
+            detail.put("message", waiting ? "子会话等待工具审批，已阻止普通委派绕过审批。请向用户说明受阻原因；"
+                    + "原始同步输出仅是已产生的部分内容，不代表业务执行成功。" : check.error());
+            detail.put("waiting_subagents", check.pending().stream().map(item -> {
+                Map<String, Object> child = new LinkedHashMap<>();
+                child.put("agent_key", item.entry().key());
+                child.put("agent_id", item.entry().agentId());
+                child.put("session_id", item.entry().sessionId());
+                child.put("pending_tool_calls", item.toolCalls().stream()
+                        .map(tool -> Map.of("id", tool.getId(), "name", tool.getName())).toList());
+                return child;
+            }).toList());
+            if (original != null) {
+                detail.put("native_result", original);
+            }
+            ToolResultBlock result = ToolResultBlock.of(
+                    TextBlock.builder().text(JSON.toJSONString(detail)).build(), detail)
+                    .withState(ToolResultState.ERROR);
+            return param.getToolUseBlock() == null ? result
+                    : result.withIdAndName(param.getToolUseBlock().getId(), param.getToolUseBlock().getName());
+        }
+
+        /**
+         * @param entry 原父登记表中的子会话标识
+         * @param toolCalls 尚未回填结果的审批工具调用
+         */
+        private record PendingApproval(SpawnEntry entry, List<ToolUseBlock> toolCalls) {
+        }
+
+        /**
+         * @param pending 本次检查发现的真实等待会话
+         * @param error 无法读取或定位状态时的原因；正常检查为null
+         */
+        private record ApprovalCheck(List<PendingApproval> pending, String error) {
         }
 
         @Override

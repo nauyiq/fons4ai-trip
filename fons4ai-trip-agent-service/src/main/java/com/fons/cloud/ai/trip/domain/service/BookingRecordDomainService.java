@@ -43,4 +43,12 @@ public interface BookingRecordDomainService extends IService<BookingRecord> {
      * @return
      */
     List<BookingRecord> findByUserIdAndBizType(String userId, BookingType bookingType);
+
+    /**
+     * 根据用户id和差旅单ID列表查找
+     * @param userId         用户id
+     * @param travelOrderIds 差旅单ID列表
+     * @return
+     */
+    List<BookingRecord> findListByUserIdAndOrderIds(String userId, List<String> travelOrderIds);
 }

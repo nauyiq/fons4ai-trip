@@ -56,4 +56,14 @@ public class BookingRecordDomainServiceImpl extends ServiceImpl<BookingRecordMap
         wrapper.orderByDesc(BookingRecord::getBookedAt);
         return list(wrapper);
     }
+
+    @Override
+    public List<BookingRecord> findListByUserIdAndOrderIds(String userId, List<String> travelOrderIds) {
+        return list(
+                Wrappers.lambdaQuery(BookingRecord.class)
+                        .eq(BookingRecord::getUserId, userId)
+                        .in(BookingRecord::getTravelOrderId, travelOrderIds)
+
+        );
+    }
 }

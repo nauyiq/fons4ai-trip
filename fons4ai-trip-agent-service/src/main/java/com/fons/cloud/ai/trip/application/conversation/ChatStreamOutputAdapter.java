@@ -30,6 +30,9 @@ import java.util.Locale;
  * <p>终态事件的data包含conversationId、pipelineRunId、可用时的agentRunId、state和nextAction。
  * nextAction取值为none、input_required或approval；INPUT_REQUIRED对应的state仍为completed，
  * 结构化交互信息放在humanInTheLoopInfos中，不表示审批暂停。</p>
+ *
+ * <p>state描述本轮Agent执行状态，不代表所有业务目标均已成功、审核通过或预订完成。
+ * 任务清单是过程记录，不能用清单全部completed替代候选、方案及审核的实际业务结果。</p>
  * @author hoqngqy
  */
 @Slf4j

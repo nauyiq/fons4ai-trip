@@ -31,6 +31,7 @@ public interface TravelOrderDomainService extends IService<TravelOrder> {
      */
     List<TravelOrder> findByTravelDetailInfo(String userId, String departureCity, String destination, String departureDate);
 
+
     /**
      * 查询用户所有生效中的差旅单（DRAFT / SUBMITTED / APPROVED），
      * 可选地与给定日期范围 [fromDate, toDate] 有重叠。
@@ -55,6 +56,14 @@ public interface TravelOrderDomainService extends IService<TravelOrder> {
      */
     List<TravelOrder> findByStatusAndUserIdAndDateRange(String userId, Collection<TravelOrderStatus> statuses, String startDate, String endDate);
 
+
+    /**
+     * 按用户id查询用户的差旅单
+     * @param userId
+     * @return
+     */
+    List<TravelOrder> findListByUserId(String userId);
+
     /**
      * 取消订单以及审批记录
       * @param order   订单
@@ -62,6 +71,7 @@ public interface TravelOrderDomainService extends IService<TravelOrder> {
      * @return
      */
     CancelOderOutcome cancelWithApproval(TravelOrder order, String reason);
+
 
 
 }

@@ -50,13 +50,52 @@ public class TravelBookingView implements Serializable {
     private String statusLabel;
 
     /**
+     * 金额
+     */
+    private String totalAmount;
+
+    /**
+     * 币种
+     */
+    private String currency;
+
+    /**
+     * 预订平台
+     */
+    private String platform;
+
+    /**
+     * 外部订单号
+     */
+    private String externalOrderNo;
+
+    /**
      * 外部平台原始状态码
      */
     private String externalStatus;
 
     /**
-     * 金额
+     * 支付状态
      */
-    private String totalAmount;
+    private String paymentStatus;
 
+    /**
+     * 服务开始时间
+     */
+    private Long startTime;
+
+    /**
+     * 服务结束时间
+     */
+    private Long endTime;
+
+    /**
+     * 预定下单时间
+     */
+    private Long bookedAt;
+
+    /**
+     * 订单Url
+     */
+    private String orderUrl;
 }

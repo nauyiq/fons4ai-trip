@@ -11,15 +11,22 @@ import com.fons.cloud.common.base.exception.SystemIntervalException;
  * @param requireInitialTask 首次agent_spawn是否必须携带非空任务，防止空创建后再发送任务
  * @param forceSync 是否强制agent_spawn/agent_send同步等待，不允许超时提升为后台任务
  * @param syncTimeoutSeconds 强制同步时的等待上限，单位秒；与普通工具执行超时独立
+ * @param blockPendingApproval 是否阻止向等待审批的子会话发送普通任务，以及新建同类型会话绕过审批
  * @author hongqy
  */
 public record AgentScopeDelegationPolicy(
         boolean requireInitialTask,
         boolean forceSync,
-        int syncTimeoutSeconds) {
+        int syncTimeoutSeconds,
+        boolean blockPendingApproval) {
 
     /** SDK强制同步等待的最大秒数；超过该值SDK会截断，因此构建时明确校验。 */
     private static final int MAX_SYNC_TIMEOUT_SECONDS = 600;
+
+    /** 保留原三参数构造入口；默认开启子Agent等待审批保护。 */
+    public AgentScopeDelegationPolicy(boolean requireInitialTask, boolean forceSync, int syncTimeoutSeconds) {
+        this(requireInitialTask, forceSync, syncTimeoutSeconds, true);
+    }
 
     public AgentScopeDelegationPolicy {
         if (syncTimeoutSeconds < 1 || syncTimeoutSeconds > MAX_SYNC_TIMEOUT_SECONDS) {

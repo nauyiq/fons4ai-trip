@@ -1,6 +1,11 @@
 package com.fons.cloud.ai.trip.common.vo;
 
+import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
+import com.fons.cloud.ai.trip.domain.entity.BookingRecord;
+import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
+import com.fons.cloud.ai.trip.infrastructure.matcher.InternationalMatcher;
 import lombok.*;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.io.Serial;
 import java.io.Serializable;
@@ -115,6 +120,64 @@ public class TravelOrderView implements Serializable {
      */
     private List<TravelBookingView> bookings;
 
+    /**
+     * 预订数目
+     */
+    private Integer bookingCount;
 
 
+    public static TravelOrderView of(TravelOrder order, ApprovalRecord approvalRecord, List<BookingRecord> records) {
+        TravelOrderViewBuilder builder = TravelOrderView.builder();
+        // 订单基础信息
+        builder.orderId(order.getOrderId());
+        builder.destination(order.getDestination());
+        builder.departureCity(order.getDepartureCity());
+        builder.departureDate(order.getDepartureDate());
+        builder.returnDate(order.getReturnDate());
+        builder.purpose(order.getPurpose());
+        builder.status(order.getStatus() == null ? null : order.getStatus().getCode());
+        builder.statusLabel(order.getStatus() == null ? null : order.getStatus().getLabel());
+        builder.created(order.getCreated().getTime());
+        builder.updated(order.getUpdated().getTime());
+        builder.international(InternationalMatcher.isInternational(order.getDestination()));
+        builder.planHtmlUrl(order.getPlanHtmlUrl());
+
+        // 审批记录信息
+        if (approvalRecord != null) {
+            builder.approvalId(approvalRecord.getProcessInstanceId());
+            builder.approvalStatus(approvalRecord.getStatus() == null ? null : approvalRecord.getStatus().getCode());
+            builder.approvalStatusLabel(approvalRecord.getStatus() == null ? null : approvalRecord.getStatus().getLabel());
+            builder.approvalRemark(approvalRecord.getRemark());
+            builder.approvalSubmitTime(approvalRecord.getCreated().getTime());
+            builder.approvalUpdateTime(approvalRecord.getUpdated().getTime());
+        }
+
+        // 预订记录信息
+        if (CollectionUtils.isNotEmpty(records)) {
+            List<TravelBookingView> bookingViews = records.stream().map(booking -> {
+                return TravelBookingView.builder()
+                        .bookingId(booking.getBookingId())
+                        .bizType(booking.getBizType() == null ? null : booking.getBizType().getCode())
+                        .bizTypeLabel(booking.getBizType() == null ? null : booking.getBizType().getLabel())
+                        .title(booking.getTitle())
+                        .status(booking.getStatus() == null ? null : booking.getStatus().getCode())
+                        .statusLabel(booking.getStatus() == null ? null : booking.getStatus().getLabel())
+                        .totalAmount(booking.getTotalAmount() == null ? null : booking.getTotalAmount().toPlainString())
+                        .currency(booking.getCurrency())
+                        .platform(booking.getPlatform())
+                        .externalOrderNo(booking.getExternalOrderNo())
+                        .externalStatus(booking.getExternalStatus())
+                        .paymentStatus(booking.getPaymentStatus().getCode())
+                        .startTime(booking.getStartTime() == null ? null : booking.getStartTime().getTime())
+                        .endTime(booking.getEndTime() == null ? null : booking.getEndTime().getTime())
+                        .bookedAt(booking.getBookedAt() == null ? null : booking.getBookedAt().getTime())
+                        // TODO
+//                        .orderUrl()
+                        .build();
+            }).toList();
+            builder.bookings(bookingViews);
+            builder.bookingCount(bookingViews.size());
+        }
+        return builder.build();
+    }
 }

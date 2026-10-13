@@ -14,9 +14,12 @@ import com.fons.cloud.ai.trip.common.request.TravelOrderCreateRequest;
 import com.fons.cloud.ai.trip.common.request.TravelOrderModifyRequest;
 import com.fons.cloud.ai.trip.common.response.ModifyTravelApprovalResult;
 import com.fons.cloud.ai.trip.common.response.SubmitTravelApprovalResult;
+import com.fons.cloud.ai.trip.common.vo.TravelOrderView;
 import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
+import com.fons.cloud.ai.trip.domain.entity.BookingRecord;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.ApprovalRecordDomainService;
+import com.fons.cloud.ai.trip.domain.service.BookingRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
@@ -30,8 +33,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 差旅业务 应用服务
@@ -45,6 +49,7 @@ public class TravelBusinessApplicationService {
     private final TransactionTemplate transactionTemplate;
     private final TravelOrderDomainService travelOrderDomainService;
     private final ApprovalRecordDomainService approvalRecordDomainService;
+    private final BookingRecordDomainService bookingRecordDomainService;
 
     /**
      * 创建差旅单和审批记录
@@ -215,6 +220,34 @@ public class TravelBusinessApplicationService {
         return R.success(outcome);
     }
 
+    /**
+     * 根据用户id获取差旅单信息
+     * @param userId
+     * @return
+     */
+    public R<List<TravelOrderView>> getUserOrders(String userId) {
+        // 1.查询该用户的差旅单
+        List<TravelOrder> travelOrders = travelOrderDomainService.findListByUserId(userId);
+        if (CollectionUtils.isEmpty(travelOrders)) {
+            return R.ok(List.of());
+        }
+
+        // 2. 批量查询差旅单关联的审批信息
+        List<ApprovalRecord> records = approvalRecordDomainService.listByIds(travelOrders.stream().map(TravelOrder::getApprovalId).filter(StringUtils::isNotBlank).toList());
+        Map<String, ApprovalRecord> approvalMap = CollectionUtils.isEmpty(records) ? new HashMap<>() : records.stream().collect(Collectors.toMap(ApprovalRecord::getProcessInstanceId, Function.identity()));
+
+        // 3. 查询用户预订记录
+        List<BookingRecord> bookingRecords = bookingRecordDomainService.findListByUserIdAndOrderIds(userId, travelOrders.stream().map(TravelOrder::getOrderId).toList());
+        Map<String, List<BookingRecord>> bookingMap = CollectionUtils.isEmpty(bookingRecords) ? new HashMap<>() : bookingRecords.stream().collect(Collectors.groupingBy(BookingRecord::getTravelOrderId));
+
+        // 构造响应数据
+        return R.ok(travelOrders.stream().map(order -> {
+            ApprovalRecord record = approvalMap.get(order.getApprovalId());
+            List<BookingRecord> bookingRecordList = bookingMap.get(order.getOrderId());
+            return TravelOrderView.of(order, record, bookingRecordList);
+        }).toList());
+    }
+
     private static List<String> updatedOrderFields(TravelOrderModifyRequest request, TravelOrder order) {
         List<String> updatedFields = new ArrayList<>();
         if (StringUtils.isNotBlank(request.getDestination())) {
@@ -279,4 +312,6 @@ public class TravelBusinessApplicationService {
                 record == null ? null : DateUtil.format(record.getCreated(), DatePattern.NORM_DATE_PATTERN),
                 order.getDestination(), order.getDepartureCity(), order.getDepartureDate(), order.getReturnDate(), order.getPurpose());
     }
+
+
 }

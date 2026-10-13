@@ -44,6 +44,13 @@ public class MasterAgentConfigProperties {
     private Integer maxToolAttempts = 3;
 
     /**
+     * 同一个业务工具在一次子Agent调用中的系统失败上限，默认2次。
+     * 达到上限后不再向该工具发起新的模型调用；不同工具分别计数，新请求重新计数。
+     * 这是模型反复调用的边界，不是SDK单次工具执行的maxAttempts，也不自动重试工具。
+     */
+    private int toolFailureLimit = 2;
+
+    /**
      * 上下文压缩配置
      */
     private CompressConfig compress = new CompressConfig();
@@ -61,6 +68,9 @@ public class MasterAgentConfigProperties {
 
         /** 同步取得子Agent结果，不提升为后台任务，默认开启。 */
         private boolean forceSync = true;
+
+        /** 子会话待审批时禁止普通续接或新建同类型会话绕过，默认开启；不提供子审批恢复。 */
+        private boolean blockPendingApproval = true;
 
         /** 同步等待上限，单位秒，SDK允许1到600秒；独立于普通工具执行超时。 */
         private int syncTimeoutSeconds = 600;
