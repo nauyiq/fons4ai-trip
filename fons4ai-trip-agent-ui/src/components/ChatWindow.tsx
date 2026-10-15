@@ -5,10 +5,24 @@ import { useChatStore, isPersistedMessageId } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { logout } from '../api/auth';
-import { sendChatMessageSSE, sendUserResponseSSE, interruptAgent, fetchMessages, updateMessageFeedback, fetchDebugAgents, sendDebugAgentMessageSSE, type DebugAgentInfo } from '../api/chat';
+import { sendChatMessageSSE, sendApprovalReplaySSE, interruptAgent, fetchMessages, mapTripMessage, updateMessageFeedback, fetchDebugAgents, sendDebugAgentMessageSSE, type DebugAgentInfo, type RemoteMessage, type TripHistoryMessage } from '../api/chat';
 import AgentMessageBlock from './AgentMessageBlock';
+import ApprovalBatchCard from './ApprovalBatchCard';
 import UserInteractionCard from './UserInteractionCard';
-import type { Message, PlanTask, UserInteraction, TravelData, BookingResult, PlanHtmlData } from '../types';
+import type { Message, PlanTask, UserInteraction, TravelData, BookingResult, PlanHtmlData, ApprovalReplayRequest } from '../types';
+import { approvalBatchReady, groupApprovalBatches, hasUnresolvedApproval, sameMessageSet } from '../approval';
+
+/** 保留审批角色/凭证；正文与模型思考仍复用原有消息展示。 */
+function historyMessage(message: RemoteMessage): Message {
+  return {
+    ...message,
+    progress: message.extra?.progress,
+    thinkingByAgent: message.extra?.thinkingByAgent,
+    planTasks: message.extra?.planTasks,
+    travelData: message.extra?.travelData,
+    timeline: message.thinking ? [{ kind: 'thinking', agentName: message.agentName || 'masterAgent', text: message.thinking }] : message.extra?.timeline,
+  };
+}
 
 // ── Message bubble components ─────────────────────────────────────────────
 function UserBubble({ msg, username }: { msg: Message; username: string }) {
@@ -123,6 +137,10 @@ export default function ChatWindow() {
   const [interaction, setInteraction] = useState<UserInteraction | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [historyRetry, setHistoryRetry] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  /** 保证网络请求尚未返回时也能挡住第二次点击。 */
+  const streamLock = useRef(false);
+  const streamConversation = useRef('');
   // 【调试后门】直连的目标子智能体，空字符串表示走默认智能调度（MasterAgent）
   const [debugAgent, setDebugAgent] = useState('');
   const [debugAgents, setDebugAgents] = useState<DebugAgentInfo[]>([]);
@@ -130,7 +148,7 @@ export default function ChatWindow() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const username = useAuthStore((s) => s.username) ?? '我';
-  const { token, clearAuth } = useAuthStore();
+  const { token, userId, clearAuth } = useAuthStore();
 
   // 跨页面预填入口（“我的差旅”快捷动作）：非空则自动发送一次
   const pendingUserMessage = useUiStore((s) => s.pendingUserMessage);
@@ -160,6 +178,9 @@ export default function ChatWindow() {
     setSuggestedQuestions,
     clearSuggestedQuestions,
     loadConversationMessages,
+    upsertMessages,
+    setApprovalSyncRequired,
+    setRunError,
     addTimelineItem,
     updateTimelineTool,
     appendTimelineThinking,
@@ -174,6 +195,8 @@ export default function ChatWindow() {
   const timeline = currentConv?.timeline ?? [];
   const suggestedQuestions = currentConv?.suggestedQuestions ?? [];
   const historyPending = !!currentConv?.isRemote && !currentConv.isLoaded;
+  const approvalBatches = groupApprovalBatches(messages);
+  const approvalBlocked = hasUnresolvedApproval(messages) || !!currentConv?.approvalSyncRequired;
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastAgentIsStreaming =
@@ -188,23 +211,8 @@ export default function ChatWindow() {
     fetchMessages(currentConversationId, controller.signal)
       .then((remoteMessages) => {
         if (cancelled) return;
-        const messages: Message[] = remoteMessages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          agentName: m.agentName,
-          timestamp: m.timestamp,
-          messageContentType: m.messageContentType,
-          progress: m.extra?.progress,
-          thinkingByAgent: m.extra?.thinkingByAgent,
-          planTasks: m.extra?.planTasks,
-          travelData: m.extra?.travelData,
-          // Trip 单独持久化模型思考，不再依赖 Gogo 的 extra.timeline 快照。
-          timeline: m.thinking ? [{ kind: 'thinking', agentName: m.agentName || 'masterAgent', text: m.thinking }] : m.extra?.timeline,
-          feedback: m.feedback ?? null,
-          feedbackAt: m.feedbackAt,
-        }));
-        loadConversationMessages(currentConversationId, messages);
+        loadConversationMessages(currentConversationId, remoteMessages.map(historyMessage));
+        setApprovalSyncRequired(currentConversationId, false);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -252,22 +260,65 @@ export default function ChatWindow() {
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }, [inputText]);
 
+  /** 重新读取完整历史，提交后的状态以服务端为准，不能乐观地把票证当成已消费。 */
+  const refreshHistory = async (conversationId: string) => {
+    setRefreshing(true);
+    setApprovalSyncRequired(conversationId, true);
+    try {
+      const rows = await fetchMessages(conversationId);
+      const canonical = rows.map(historyMessage);
+      loadConversationMessages(conversationId, canonical);
+      // 历史已替代本轮临时消息，避免停止思考时再把旧进度快照到审批卡片之后。
+      if (useChatStore.getState().currentConversationId === conversationId) clearProgress();
+      setApprovalSyncRequired(conversationId, false);
+      setHistoryError('');
+      return canonical;
+    } catch (failure) {
+      if (failure instanceof Error && failure.message === 'UNAUTHORIZED') await handleUnauthorized();
+      setHistoryError(failure instanceof Error ? failure.message : '状态刷新失败');
+      throw failure;
+    } finally { setRefreshing(false); }
+  };
+
   const handleEvent = (event: string, data: string) => {
+    // 会话绑定后继续使用同一服务端ID；迟到回调不能写入退出登录后的新会话。
+    if (streamConversation.current && useChatStore.getState().currentConversationId !== streamConversation.current) return;
     switch (event) {
       case 'conversation_ready': {
         const { conversationId } = JSON.parse(data) as { conversationId?: string };
-        if (conversationId) bindRemoteConversation(currentConversationId, conversationId);
+        if (conversationId) {
+          bindRemoteConversation(streamConversation.current || currentConversationId, conversationId);
+          streamConversation.current = conversationId;
+        }
         break;
       }
       case 'run_ended': {
-        const result = JSON.parse(data) as { state?: string; errorMessage?: string };
+        const result = JSON.parse(data) as {
+          conversationId?: string; state?: string; errorMessage?: string; nextAction?: string;
+          pauseId?: string; pauseVersion?: number; approvalReady?: boolean; approvalMessages?: TripHistoryMessage[];
+          humanInTheLoopInfos?: Array<{ kind: string; question?: string; data?: Partial<UserInteraction> }>;
+        };
+        const conversationId = streamConversation.current || currentConversationId;
+        if (result.state === 'waiting_approval') {
+          snapshotProgressToLastMessage();
+          const cards = result.approvalMessages;
+          if (result.approvalReady === true && Array.isArray(cards) && cards.length > 0
+              && new Set(cards.map(card => card.id)).size === cards.length
+              && cards.every(card => card.role === 'agent_hitl' && card.hitlStatus === 'PENDING'
+                && card.pauseId === result.pauseId && card.pauseVersion === result.pauseVersion)) {
+            upsertMessages(conversationId, cards.map(card => historyMessage(mapTripMessage(card))));
+          } else {
+            setApprovalSyncRequired(conversationId, true);
+            setHistoryError('审批卡片尚未完整取得，请刷新会话状态');
+          }
+        }
+        if (result.nextAction === 'input_required') {
+          const info = result.humanInTheLoopInfos?.find(item => item.kind === 'INPUT_REQUIRED');
+          if (info?.question) setInteraction({ ...info.data, toolUseId: '', question: info.question, ui_type: info.data?.ui_type || 'text' });
+        }
         if (result.state && result.state !== 'completed' && result.state !== 'waiting_approval') {
-          addMessage({
-            id: Math.random().toString(36).slice(2, 10),
-            role: 'system',
-            content: result.errorMessage || `聊天执行${result.state === 'cancelled' ? '已取消' : '失败'}`,
-            timestamp: Date.now(),
-          });
+          const existing = useChatStore.getState().conversations.find(item => item.id === conversationId)?.runError;
+          setRunError(conversationId, result.errorMessage || existing || `聊天执行${result.state === 'cancelled' ? '已取消' : '失败'}`);
         }
         break;
       }
@@ -371,12 +422,7 @@ export default function ChatWindow() {
         break;
       }
       case 'error':
-        addMessage({
-          id: Math.random().toString(36).slice(2, 10),
-          role: 'system',
-          content: `错误：${data}`,
-          timestamp: Date.now(),
-        });
+        setRunError(streamConversation.current || currentConversationId, data);
         break;
       case 'user_interaction': {
         try {
@@ -456,49 +502,38 @@ export default function ChatWindow() {
   const handleRespond = async (response: unknown) => {
     if (!interaction) return;
     const displayText = typeof response === 'string' ? response : JSON.stringify(response);
-    addMessage({
-      id: Math.random().toString(36).slice(2, 10),
-      role: 'user',
-      content: displayText,
-      timestamp: Date.now(),
-    });
-    const currentInteraction = interaction;
+    // INPUT_REQUIRED是普通补充消息，不通过工具审批恢复接口提交。
     setInteraction(null);
-    setThinking(true);
+    await sendText(displayText, true);
+  };
 
+  const submitApproval = async (request: ApprovalReplayRequest) => {
+    if (streamLock.current || isThinking) throw new Error('当前任务尚未结束');
+    if (request.conversationId !== currentConversationId || useAuthStore.getState().userId !== userId)
+      throw new Error('会话或账号已切换，请重新打开审批');
+    streamLock.current = true;
+    streamConversation.current = request.conversationId;
     try {
-      await sendUserResponseSSE(
-        currentConversationId,
-        currentInteraction.toolUseId,
-        response,
-        (evt) => handleEvent(evt.event, evt.data),
-        (err) => {
-          if (err?.message === 'UNAUTHORIZED') {
-            setThinking(false);
-            handleUnauthorized();
-            return;
-          }
-          addMessage({
-            id: Math.random().toString(36).slice(2, 10),
-            role: 'system',
-            content: `连接异常：${err?.message || '未知错误'}`,
-            timestamp: Date.now(),
-          });
-        },
-        () => setThinking(false),
-      );
-    } catch (err: any) {
-      setThinking(false);
-      if (err?.message === 'UNAUTHORIZED') {
-        await handleUnauthorized();
-        return;
+      // 提交前读取全部页面，不能以局部历史或过期卡片拼出不完整批次。
+      const fresh = await refreshHistory(request.conversationId);
+      const batch = groupApprovalBatches(fresh).find(item => item.pauseId === request.pauseId && item.pauseVersion === request.pauseVersion);
+      if (!batch || !approvalBatchReady(batch)
+          || !sameMessageSet(request.decisions.map(item => item.messageId), batch.messages.map(item => item.id)))
+        throw new Error('审批状态已变化，请按刷新后的卡片处理');
+      snapshotProgressToLastMessage(); clearProgress(); clearSuggestedQuestions();
+      setRunError(request.conversationId);
+      setInteraction(null); setThinking(true); setApprovalSyncRequired(request.conversationId, true);
+      await sendApprovalReplaySSE(request, event => handleEvent(event.event, event.data));
+    } catch (failure) {
+      if (failure instanceof Error && failure.message === 'UNAUTHORIZED') await handleUnauthorized();
+      throw failure;
+    } finally {
+      // 断线后保留原请求；先读取权威状态，再允许重试同一份决定。
+      if (useAuthStore.getState().userId === userId) {
+        try { await refreshHistory(request.conversationId); } catch { /* 卡片保持待核对状态。 */ }
+        if (useChatStore.getState().currentConversationId === request.conversationId) setThinking(false);
       }
-      addMessage({
-        id: Math.random().toString(36).slice(2, 10),
-        role: 'system',
-        content: `发送失败：${err?.message || '请检查后端服务是否启动'}`,
-        timestamp: Date.now(),
-      });
+      streamLock.current = false;
     }
   };
 
@@ -550,9 +585,11 @@ export default function ChatWindow() {
     }
   };
 
-  const sendText = async (content: string) => {
-    if (interaction || historyPending) return;
+  const sendText = async (content: string, inputResponse = false) => {
+    if (streamLock.current || (interaction && !inputResponse) || historyPending || approvalBlocked || refreshing) return;
     if (!content.trim()) return;
+    streamLock.current = true;
+    streamConversation.current = currentConversationId;
 
     // 若正在生成，先打断上一轮回复
     if (isThinking) {
@@ -561,6 +598,7 @@ export default function ChatWindow() {
       } catch (err: any) {
         if (err?.message === 'UNAUTHORIZED') {
           await handleUnauthorized();
+          streamLock.current = false;
           return;
         }
         console.error('打断失败', err);
@@ -574,6 +612,7 @@ export default function ChatWindow() {
     snapshotProgressToLastMessage();
     clearProgress();
     clearSuggestedQuestions();
+    setRunError(currentConversationId);
 
     addMessage({
       id: Math.random().toString(36).slice(2, 10),
@@ -594,39 +633,39 @@ export default function ChatWindow() {
         handleUnauthorized();
         return;
       }
-      addMessage({
-        id: Math.random().toString(36).slice(2, 10),
-        role: 'system',
-        content: `连接异常：${err?.message || '未知错误'}`,
-        timestamp: Date.now(),
-      });
+      setRunError(streamConversation.current || currentConversationId, `连接异常：${err?.message || '未知错误'}`);
     };
-    const onDone = () => setThinking(false);
+    const onDone = () => { if (debugAgent) setThinking(false); };
 
     try {
       if (debugAgent) {
         await sendDebugAgentMessageSSE(debugAgent, currentConversationId, content, onEvt, onErr, onDone);
       } else {
-        await sendChatMessageSSE(currentConv?.isRemote ? currentConversationId : undefined, content, onEvt, onErr, onDone);
+        await sendChatMessageSSE(currentConv?.isRemote ? currentConversationId : undefined, content, onEvt);
       }
-    } catch (err: any) {
-      setThinking(false);
-      if (err?.message === 'UNAUTHORIZED') {
+    } catch (err: unknown) {
+      const failure = err instanceof Error ? err : new Error('请求失败');
+      if (failure.message === 'UNAUTHORIZED') {
         // Token 已失效，自动登出（clearAuth 会触发 App 渲染登录页）
         await handleUnauthorized();
         return;
       }
-      addMessage({
-        id: Math.random().toString(36).slice(2, 10),
-        role: 'system',
-        content: `发送失败：${err?.message || '请检查后端服务是否启动'}`,
-        timestamp: Date.now(),
-      });
+      const id = streamConversation.current || currentConversationId;
+      const existing = useChatStore.getState().conversations.find(item => item.id === id)?.runError;
+      // 断流可能发生在服务端错误之后，保留先收到的具体错误，不被泛化的EOF覆盖。
+      setRunError(id, existing || `发送失败：${failure.message || '请检查后端服务是否启动'}`);
+    } finally {
+      const id = streamConversation.current;
+      if (!debugAgent && useAuthStore.getState().userId === userId && useChatStore.getState().conversations.some(item => item.id === id && item.isRemote)) {
+        try { await refreshHistory(id); } catch { /* 不能确认状态时禁用后续审批和普通消息。 */ }
+      }
+      if (useChatStore.getState().currentConversationId === id) setThinking(false);
+      streamLock.current = false;
     }
   };
 
   const handleSend = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || approvalBlocked || historyPending || refreshing || streamLock.current) return;
     const content = inputText.trim();
     setInputText('');
     await sendText(content);
@@ -643,12 +682,12 @@ export default function ChatWindow() {
   useEffect(() => {
     if (!pendingUserMessage || !currentConversationId) return;
     // 正在处理中或等待用户回答时不自动发送，避免打断
-    if (isThinking || interaction || historyPending) return;
+    if (isThinking || interaction || historyPending || approvalBlocked || refreshing) return;
     const msg = consumePendingUserMessage();
     if (msg) {
       sendTextRef.current(msg);
     }
-  }, [pendingUserMessage, currentConversationId, isThinking, interaction, historyPending, consumePendingUserMessage]);
+  }, [pendingUserMessage, currentConversationId, isThinking, interaction, historyPending, approvalBlocked, refreshing, consumePendingUserMessage]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -671,6 +710,8 @@ export default function ChatWindow() {
           <span className="chat-header-title">{currentConv?.title || '新对话'}</span>
         </div>
         <div className="chat-header-right">
+          {currentConv?.isRemote && <button type="button" className="approval-refresh" disabled={isThinking || refreshing}
+            onClick={() => { void refreshHistory(currentConversationId).catch(() => {}); }}>{refreshing ? '刷新中…' : '刷新会话'}</button>}
           {isThinking && (
             <div className="chat-header-status">
               <span className="status-dot" />
@@ -681,7 +722,7 @@ export default function ChatWindow() {
             className="debug-agent-select"
             value={debugAgent}
             onChange={(e) => setDebugAgent(e.target.value)}
-            disabled={isThinking || !!interaction}
+            disabled={isThinking || !!interaction || approvalBlocked || refreshing}
             title="选择直连的子智能体（调试），默认由主智能体智能调度"
           >
             <option value="">🧠 默认（智能调度）</option>
@@ -696,12 +737,24 @@ export default function ChatWindow() {
 
       {/* Message list */}
       <div className="message-list">
-        {historyPending && <div className="history-status" role={historyError ? 'alert' : 'status'}>
+        {currentConv?.runError && <div className="history-status" role="alert">本轮执行未完成：{currentConv.runError}</div>}
+        {(historyPending || historyError) && <div className="history-status" role={historyError ? 'alert' : 'status'}>
           {historyError ? `聊天记录加载失败：${historyError}` : '正在加载聊天记录…'}
-          {historyError && <button type="button" onClick={() => setHistoryRetry(n => n + 1)}>重试</button>}
+          {historyError && <button type="button" disabled={isThinking || refreshing} onClick={() => {
+            if (historyPending) setHistoryRetry(n => n + 1);
+            else void refreshHistory(currentConversationId).catch(() => {});
+          }}>刷新状态</button>}
         </div>}
         {messages.map((msg, idx) => {
-          if (msg.role === 'user') return <UserBubble key={msg.id} msg={msg} username={username} />;
+          if (msg.role === 'user' || msg.role === 'user_resume') return <UserBubble key={msg.id} msg={msg} username={username} />;
+          if (msg.role === 'agent_hitl') {
+            const batch = approvalBatches.find(item => item.messages.some(card => card.id === msg.id));
+            if (!batch || batch.messages[0].id !== msg.id) return null;
+            return <ApprovalBatchCard key={`${currentConversationId}:${batch.key}`} userId={userId ?? ''}
+              conversationId={currentConversationId} batch={batch} busy={isThinking || refreshing}
+              syncRequired={!!currentConv?.approvalSyncRequired} onSubmit={submitApproval}
+              onRefresh={async () => { await refreshHistory(currentConversationId); }} />;
+          }
           if (msg.role === 'agent') {
             const isLast = idx === messages.length - 1;
             const streaming = isLast && lastAgentIsStreaming;
@@ -738,7 +791,7 @@ export default function ChatWindow() {
         {isThinking && !lastAgentIsStreaming && timeline.length === 0 && <ThinkingDots />}
 
         {/* 推荐问题：MasterAgent 返回后由问题推荐智能体生成 */}
-        {!isThinking && suggestedQuestions.length > 0 && (
+        {!isThinking && !approvalBlocked && suggestedQuestions.length > 0 && (
           <SuggestionChips questions={suggestedQuestions} onClick={sendText} />
         )}
 
@@ -767,7 +820,7 @@ export default function ChatWindow() {
 
       {/* Input area */}
       <div className="input-area">
-        <div className={`input-box${isThinking || interaction || historyPending ? ' disabled' : ''}`}>
+        <div className={`input-box${isThinking || interaction || historyPending || approvalBlocked || refreshing ? ' disabled' : ''}`}>
           <textarea
             ref={textareaRef}
             className="input-textarea"
@@ -776,6 +829,8 @@ export default function ChatWindow() {
                 ? '聊天记录尚未加载完成'
                 : isThinking
                 ? 'AI 正在处理，请稍候...'
+                : approvalBlocked
+                ? '请先处理审批卡片；状态不明时请刷新会话'
                 : interaction
                 ? '请先回答上方问题'
                 : '输入您的差旅需求，按 Enter 发送，Shift+Enter 换行'
@@ -783,13 +838,13 @@ export default function ChatWindow() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isThinking || !!interaction || historyPending}
+            disabled={isThinking || !!interaction || historyPending || approvalBlocked || refreshing}
             rows={1}
           />
           <button
             className="send-btn"
             onClick={isThinking ? handleInterrupt : handleSend}
-            disabled={!!interaction || historyPending || (!isThinking && !inputText.trim())}
+            disabled={!!interaction || historyPending || refreshing || (!isThinking && (approvalBlocked || !inputText.trim()))}
             title={isThinking ? '停止生成' : '发送 (Enter)'}
           >
             {isThinking ? (

@@ -15,6 +15,10 @@ export interface Conversation {
   /** 当前轮次按时间顺序的思考/工具/计划/结果时间轴 */
   timeline: TimelineItem[];
   isThinking: boolean;
+  /** 断线或提交后须重新读取服务端状态，期间不能发送新任务或审批。 */
+  approvalSyncRequired?: boolean;
+  /** 本轮执行错误单独保存，历史刷新不应抹掉未落库的失败提示。 */
+  runError?: string;
   activeAgent: string;
   /** 问题推荐智能体生成的推荐问题 */
   suggestedQuestions: string[];
@@ -43,6 +47,10 @@ interface ChatState {
   // Remote history
   setConversations: (conversations: Conversation[]) => void;
   loadConversationMessages: (id: string, messages: Message[]) => void;
+  /** SSE正式卡片按持久化ID合并，避免刷新/重复事件产生两张相同卡片。 */
+  upsertMessages: (id: string, messages: Message[]) => void;
+  setApprovalSyncRequired: (id: string, required: boolean) => void;
+  setRunError: (id: string, error?: string) => void;
   markConversationLoaded: (id: string) => void;
 
   // Derived helpers
@@ -193,6 +201,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
         c.id === id ? { ...c, messages, isLoaded: true } : c,
       ),
     })),
+
+  upsertMessages: (id, messages) => set((state) => ({
+    conversations: state.conversations.map(conversation => {
+      if (conversation.id !== id) return conversation;
+      const merged = new Map(conversation.messages.map(message => [message.id, message]));
+      messages.forEach(message => merged.set(message.id, { ...merged.get(message.id), ...message }));
+      return { ...conversation, messages: [...merged.values()], updatedAt: Date.now() };
+    }),
+  })),
+
+  setApprovalSyncRequired: (id, required) => set((state) => ({
+    conversations: state.conversations.map(conversation => conversation.id === id
+      ? { ...conversation, approvalSyncRequired: required } : conversation),
+  })),
+
+  setRunError: (id, error) => set((state) => ({
+    conversations: state.conversations.map(conversation => conversation.id === id
+      ? { ...conversation, runError: error } : conversation),
+  })),
 
   markConversationLoaded: (id) =>
     set((state) => ({

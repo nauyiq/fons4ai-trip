@@ -1,8 +1,9 @@
--- GoGo 差旅助手数据库初始化脚本
--- 请在 MySQL 中先执行 CREATE DATABASE gogo_travel DEFAULT CHARACTER SET utf8mb4;
+-- Trip差旅助手数据库初始化脚本
+-- 请在 MySQL 中先执行 CREATE DATABASE trip DEFAULT CHARACTER SET utf8mb4;
 -- 本脚本用于新库初始化；CREATE TABLE IF NOT EXISTS 不会变更已有表，存量库需单独执行迁移。
 
-CREATE TABLE IF NOT EXISTS agentscope_session (
+-- AgentScope Java 2.0.3默认表名是agentscope_sessions，与JdbcDistributedStore保持一致。
+CREATE TABLE IF NOT EXISTS agentscope_sessions (
     session_id VARCHAR(255) NOT NULL,
     state_key VARCHAR(255) NOT NULL,
     item_index INT NOT NULL DEFAULT 0,
@@ -153,15 +154,25 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
 
 CREATE TABLE IF NOT EXISTS `chat_message_hitl` (
     `message_id`       VARCHAR(64)  NOT NULL COMMENT '关联chat_message.message_id，仅保存APPROVAL类型',
+    `conversation_id`  VARCHAR(64)  NOT NULL COMMENT '审批所属会话',
+    `pipeline_run_id`  VARCHAR(64)  DEFAULT NULL COMMENT '准备本批凭证的Pipeline运行ID',
     `hitl_id`          VARCHAR(128) NOT NULL COMMENT 'Agent返回的HITL ID',
     `origin_run_id`    VARCHAR(64)  NOT NULL COMMENT '原始Agent运行ID',
     `checkpoint_id`    VARCHAR(128) NOT NULL COMMENT 'Agent恢复检查点ID',
-    `status`           VARCHAR(16)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/RESUMING/CONSUMED',
+    `pause_id`         VARCHAR(128) DEFAULT NULL COMMENT '一次中断的审批批次',
+    `pause_version`    BIGINT       DEFAULT NULL COMMENT '框架审批批次版本',
+    `resume_ref`       VARCHAR(128) DEFAULT NULL COMMENT '不透明单项恢复引用',
+    `status`           VARCHAR(16)  NOT NULL DEFAULT 'PREPARED' COMMENT 'PREPARED/PENDING/RESUMING/CONSUMED/FAILED',
+    `resume_request_id` VARCHAR(128) DEFAULT NULL COMMENT '占用本批的稳定提交标识',
+    `resume_run_id`    VARCHAR(64)  DEFAULT NULL COMMENT '持有本批恢复权的Agent/Trace运行ID',
     `hitl_data`        JSON         DEFAULT NULL COMMENT '审批卡片展示数据',
     `created`          DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`message_id`),
-    KEY `idx_hitl_id` (`hitl_id`)
+    KEY `idx_hitl_id` (`hitl_id`),
+    KEY `idx_hitl_conversation_status` (`conversation_id`, `status`),
+    KEY `idx_hitl_batch` (`conversation_id`, `pause_id`, `pause_version`),
+    KEY `idx_hitl_resume_request` (`conversation_id`, `resume_request_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '审批消息HITL一对一扩展';
 
 -- ============================================================

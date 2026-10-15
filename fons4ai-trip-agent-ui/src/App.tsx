@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useUiStore } from './store/uiStore';
 import { fetchUserInfo } from './api/auth';
@@ -16,38 +16,42 @@ export default function App() {
   const view = useUiStore((s) => s.view);
 
   /**
-   * 页面刺新/首次加载时，若 localStorage 存有 token，则立即对后端进行驗证。
-   * - 驗证通过（200）：保持已登录状态，正常展示主界面。
-   * - 驗证失败（401 / 其他错误）：清除本地 token，跳转登录页。
+   * 页面刷新/首次加载时，若 localStorage 存有 token，则向后端验证登录态。
+   * - 验证通过：保持已登录状态，正常展示主界面。
+   * - 明确过期：清除本地 token，跳转登录页；连接失败保留登录态供重试。
    * checking 状态技巧：仅当 token 存在时才请求后端，不存在时直接展示登录页。
    */
   const [checking, setChecking] = useState(!!token && !!tokenName);
+  const [connectionError, setConnectionError] = useState('');
 
-  useEffect(() => {
-    if (!token || !tokenName) {
-      // 本地无 token，无需骗证接口，直接进入登录页
-      return;
-    }
-    // 调用 GET /api/auth/info 驗证 token 是否仍有效
-    fetchUserInfo(token, tokenName)
-      .then((info) => {
-        // 以服务端用户信息刷新本地身份与管理员标识
-        setAuth(token, tokenName, info.userId, info.username, info.admin);
-      })
-      .catch(() => {
-        // Token 已失效（401）或网络异常：清除本地登录态，跳入登录页
-        clearAuth();
-      })
-      .finally(() => setChecking(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 仅在组件首次挂载（页面初始化/刷新）时运行一次
+  const verifySession = useCallback(async () => {
+    if (!token || !tokenName) return;
+    try {
+      const info = await fetchUserInfo(token, tokenName);
+      if (useAuthStore.getState().token !== token) return;
+      setAuth(token, tokenName, info.userId, info.username, info.admin);
+      setConnectionError('');
+    } catch (failure) {
+      if (useAuthStore.getState().token !== token) return;
+      // 后端暂未启动/连接失败不等于令牌失效，保留登录态和审批草稿供服务就绪后重试。
+      if (failure instanceof Error && failure.message === 'UNAUTHORIZED') clearAuth();
+      else setConnectionError('暂时无法连接服务，请在服务就绪后重试。');
+    } finally { setChecking(false); }
+  }, [token, tokenName, setAuth, clearAuth]);
 
-  // token 正在驗证中：返回空白屏避免闪现错误页面
+  useEffect(() => { void Promise.resolve().then(verifySession); }, [verifySession]);
+
+  // token 正在验证中：返回空白屏避免闪现错误页面。
   if (checking) return null;
 
   if (!isLoggedIn) {
     return <LoginPage />;
   }
+
+  if (connectionError) return <div className="service-connection-status" role="alert">
+    <p>{connectionError}</p>
+    <button type="button" onClick={() => { setChecking(true); void verifySession(); }}>重新连接</button>
+  </div>;
 
   return (
     <div className="app-root">

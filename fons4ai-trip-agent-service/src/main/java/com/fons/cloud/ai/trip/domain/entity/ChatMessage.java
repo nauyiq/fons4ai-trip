@@ -128,7 +128,7 @@ public class ChatMessage extends BaseEntity {
     public static List<ChatMessage> createAgent(String agentName, AgentRunResult result) {
         List<HumanInTheLoopInfo> humanInTheLoopInfos = result.getHumanInTheLoopInfos();
         if (CollectionUtils.isNotEmpty(humanInTheLoopInfos)) {
-            // 创建HITL的消息 从业务逻辑来看只会有一条， 但是设计看考虑到多个子Agent同时返回HITL消息时 业务上要支持多个HITL的审批
+            // 一次Run可能收口多个子Agent审批，每项保存一条消息；恢复仍按整批提交。
             List<ChatMessage> hitlMessages = new ArrayList<>();
             List<HumanInTheLoopInfo> inputRequests = humanInTheLoopInfos.stream()
                     .filter(info -> info.getKind() == HumanInTheLoopKind.INPUT_REQUIRED)

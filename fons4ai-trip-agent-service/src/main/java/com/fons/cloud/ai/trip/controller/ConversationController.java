@@ -72,9 +72,9 @@ public class ConversationController {
     }
 
     /**
-     * 回复对话， 用户对于HITL消息类型的回复
+     * 一次提交同一中断批次的全部HITL审批决定。
      * <p>
-     *     当前接口设计为 回复{@link HumanInTheLoopKind#APPROVAL} 的HITL请求。
+     *     只接收{@link HumanInTheLoopKind#APPROVAL}的完整decisions；身份由登录态覆盖。
      * </p>
      * @param request
      * @return

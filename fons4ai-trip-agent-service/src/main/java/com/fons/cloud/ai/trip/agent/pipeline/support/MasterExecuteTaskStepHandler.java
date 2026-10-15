@@ -3,6 +3,8 @@ package com.fons.cloud.ai.trip.agent.pipeline.support;
 import com.fons.cloud.ai.agent.api.Agent;
 import com.fons.cloud.ai.agent.api.AgentRegistry;
 import com.fons.cloud.ai.agent.api.AgentRun;
+import com.fons.cloud.ai.agent.core.AgentScopeHarnessAgent;
+import com.fons.cloud.ai.agent.model.request.AgentRequest;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
@@ -24,6 +26,15 @@ import reactor.core.publisher.Mono;
 public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
     private final AgentRegistry agentRegistry;
 
+    /** 先检查原生审批状态及全部参数，再由业务层事务占用票证；此处不启动Run。 */
+    public void validateApprovalResume(AgentRequest request) {
+        Agent master = agentRegistry.getAgent(TripAgent.MASTER_AGENT.getAgentName());
+        if (!(master instanceof AgentScopeHarnessAgent harness)) {
+            throw SystemIntervalException.of("MasterAgent不支持本地整批审批恢复");
+        }
+        harness.validateApprovalResume(request);
+    }
+
     @Override
     protected Mono<ExecuteResult> execute(AgentPipelineExecuteContext context, ReactiveTaskScope<String> scope) {
         return Mono.defer(() -> {
@@ -35,7 +46,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
 
             /*
              * 保留原始AgentRequest，确保普通请求内容以及HITL恢复请求中的originRunId、
-             * checkpointId和审批决定完整传递给AgentScope适配器。
+             * pauseId、pauseVersion、requestId及完整决定集传递给AgentScope适配器。
              */
             AgentRun masterRun = masterAgent.run(context.getUserInput());
             if (masterRun == null) {

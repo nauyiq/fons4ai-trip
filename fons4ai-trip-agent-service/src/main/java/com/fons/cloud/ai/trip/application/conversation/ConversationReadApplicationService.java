@@ -96,6 +96,11 @@ public class ConversationReadApplicationService {
                 ChatMessageHitl hitl = hitlMap.get(chatMessage.getMessageId());
                 if (hitl != null) {
                     builder.hitlId(hitl.getHitlId());
+                    builder.pauseId(hitl.getPauseId());
+                    builder.pauseVersion(hitl.getPauseVersion());
+                    builder.resumeRef(hitl.getResumeRef());
+                    builder.resumeRequestId(hitl.getResumeRequestId());
+                    builder.resumeRunId(hitl.getResumeRunId());
                     builder.hitlStatus(hitl.getStatus().getCode());
                     builder.hitlData(StringUtils.isBlank(hitl.getHitlData()) ? null : JSON.parseObject(hitl.getHitlData()));
                 }

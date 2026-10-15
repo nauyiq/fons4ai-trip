@@ -5,6 +5,7 @@ import com.fons.cloud.ai.agent.api.AgentType;
 import com.fons.cloud.ai.agent.core.AgentScopeHarnessAgent;
 import com.fons.cloud.ai.agent.core.AgentTaskManager;
 import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceMiddleware;
+import com.fons.cloud.ai.agent.infrastructure.middleware.AgentScopeApprovalRejectMiddleware;
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.mcp.WeatherMcp;
 import com.fons.cloud.ai.trip.infrastructure.middleware.AgentScopeDelegationMiddleware;
@@ -18,6 +19,9 @@ import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddlewar
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripToolExecutionGuardMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
 import io.agentscope.core.model.ExecutionConfig;
+import io.agentscope.core.permission.PermissionBehavior;
+import io.agentscope.core.permission.PermissionContextState;
+import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.ToolkitConfig;
 import io.agentscope.core.tracing.OtelTracingMiddleware;
@@ -92,13 +96,12 @@ public class MasterAgentConfig {
         toolkit.registerTool(userInfoReadTools);
         toolkit.registerTool(userInfoWriteTools);
         // 子AGENT构建
-        HarnessAgent itineraryManageAgent = commonBuilder()
+        HarnessAgent itineraryManageAgent = childBuilder(toolkit)
                 .name(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName())
                 .description(TripAgent.ITINERARY_MANAGE_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-manage-agent-system.md"))
                 .middleware(businessToolGuard(Set.of(), bookingReadTools, travelOrderReadTools,
                         travelOrderWriteTools, travelOrderConflictTools, userInfoReadTools, userInfoWriteTools))
-                .toolkit(toolkit)
                 .disableSubagents()
                 .build();
         log.info("[MasterAgent] 行程管理子Agent创建成功...");
@@ -126,7 +129,7 @@ public class MasterAgentConfig {
         }
 
         // 子AGENT构建
-        HarnessAgent itineraryPlanAgent = commonBuilder()
+        HarnessAgent itineraryPlanAgent = childBuilder(toolkit)
                 .name(TripAgent.ITINERARY_PLAN_AGENT.getAgentName())
                 .description(TripAgent.ITINERARY_PLAN_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-plan-agent-system.md"))
@@ -135,7 +138,6 @@ public class MasterAgentConfig {
                 .middleware(businessToolGuard(Set.copyOf(DestinationLiveTools.TOOLS), bookingReadTools,
                         userInfoReadTools, userInfoWriteTools, travelOrderReadTools, destinationLiveTools,
                         policyTools, itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools))
-                .toolkit(toolkit)
                 .disableSubagents()
                 .build();
         log.info("[MasterAgent] 行程规划子Agent创建成功...");
@@ -154,12 +156,11 @@ public class MasterAgentConfig {
                     .enableTools(weatherMcp.getEnabledTools())
                     .apply();
         }
-        HarnessAgent infoAgent = commonBuilder()
+        HarnessAgent infoAgent = childBuilder(toolkit)
                 .name(TripAgent.INFO_AGENT.getAgentName())
                 .description(TripAgent.INFO_AGENT.getDescription())
                 .sysPrompt(PromptLoader.loadRequired("prompt/info-agent-system.md"))
                 .middleware(businessToolGuard(Set.of(), policyTools, destinationLiveTools, visaTools))
-                .toolkit(toolkit)
                 .disableSubagents()
                 .build();
         log.info("[MasterAgent] 信息查询子Agent创建成功...");
@@ -193,7 +194,8 @@ public class MasterAgentConfig {
         AgentScopeDelegationMiddleware delegationMiddleware = new AgentScopeDelegationMiddleware(
                 new AgentScopeDelegationPolicy(delegation.isRequireInitialTask(),
                         delegation.isForceSync(), delegation.getSyncTimeoutSeconds(),
-                        delegation.isBlockPendingApproval()));
+                        // 子审批由框架保留原委派并整批收口，不能再改写成普通ERROR。
+                        false));
         masterBuilder.middleware(delegationMiddleware);
 
         // 保留fons4ai契约、任务管理、INPUT_REQUIRED及审批处理，不另建调度器。
@@ -203,6 +205,7 @@ public class MasterAgentConfig {
                 .agentTaskManager(agentTaskManager)
                 .delegateBuilder(masterBuilder)
                 .inputRequiredEnabled(true)
+                .subagentApprovalEnabled(true)
                 .build();
     }
 
@@ -219,6 +222,28 @@ public class MasterAgentConfig {
                 nonBlockingTodoTools);
     }
 
+    /**
+     * 子审批直接使用SDK权限规则；框架负责收口与恢复，不把确认逻辑写进业务工具。
+     * Master的拒绝中间件由框架安装，子Agent在此注册一次以推进拒绝后的原生状态。
+     */
+    private HarnessAgent.Builder childBuilder(Toolkit toolkit) {
+        HarnessAgent.Builder builder = commonBuilder().toolkit(toolkit)
+                .middleware(AgentScopeApprovalRejectMiddleware.getInstance());
+        var askTools = properties.getApprovalRequiredTools().stream()
+                .filter(name -> toolkit.getTool(name) != null)
+                .sorted().toList();
+        if (!askTools.isEmpty()) {
+            PermissionContextState.Builder permissions = PermissionContextState.builder();
+            // 每个子Agent只接收自己实际拥有的工具规则；委派工具不进入业务审批清单。
+            for (String name : askTools) {
+                permissions.addAskRule(name, new PermissionRule(name, null, PermissionBehavior.ASK,
+                        "业务配置要求执行前人工确认"));
+            }
+            builder.permissionContext(permissions.build());
+        }
+        return builder;
+    }
+
     private HarnessAgent.Builder commonBuilder() {
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .middleware(tripTimeContextMiddleware)
@@ -230,6 +255,9 @@ public class MasterAgentConfig {
                 .model(ModelFacade.getModel(properties.getMainModel()))
                 .workspace(Paths.get(properties.getWorkspace()))
                 .distributedStore(distributedStore)
+                // 父子明确使用同一共享状态存储；恢复不能隐式重放悬空的spawn/send。
+                .stateStore(distributedStore.agentStateStore())
+                .enablePendingToolRecovery(false)
                 .filesystem(new RemoteFilesystemSpec().isolationScope(IsolationScope.USER))
                 .maxIters(properties.getMaxIterations())
                 .toolExecutionConfig(ExecutionConfig.builder()

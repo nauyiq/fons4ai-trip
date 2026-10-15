@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useChatStore } from './chatStore';
+import { clearApprovalDrafts } from '../approval';
 
 interface AuthState {
   token: string | null;
@@ -24,11 +25,15 @@ export const useAuthStore = create<AuthState>()(
       isAdmin: false,
 
       setAuth: (token, tokenName, userId, username, isAdmin = false) => {
-        if (get().userId !== userId) useChatStore.getState().resetConversations();
+        if (get().userId !== userId) {
+          clearApprovalDrafts(get().userId);
+          useChatStore.getState().resetConversations();
+        }
         set({ token, tokenName, userId, username, isAdmin });
       },
 
       clearAuth: () => {
+        clearApprovalDrafts(get().userId);
         useChatStore.getState().resetConversations();
         set({ token: null, tokenName: null, userId: null, username: null, isAdmin: false });
       },

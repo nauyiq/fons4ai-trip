@@ -1,5 +1,16 @@
 import { storedAuthHeaders } from './auth';
 import { getApiBase } from './config';
+import type { ApprovalReplayRequest, Message } from '../types';
+
+/** 保留业务错误码，以区分未接受的参数错误和需要刷新状态的重复/冲突提交。 */
+export class TripApiError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'TripApiError';
+    this.code = code;
+  }
+}
 
 export interface SSEEvent {
   event: string;
@@ -18,26 +29,38 @@ export async function sendChatMessageSSE(
   onError?: (err: any) => void,
   onComplete?: () => void,
 ) {
-  const response = await fetch(`${getApiBase()}/api/conversation/stream`, {
+  return streamTripRequest('/api/conversation/stream', {
+    conversationId, messages: [{ content: message, messageType: 'TEXT' }],
+  }, onEvent, onError, onComplete);
+}
+
+/** 正常聊天和整批恢复共用同一个JSON/SSE解析器，只有run_ended代表权威收口。 */
+async function streamTripRequest(
+  path: string,
+  body: unknown,
+  onEvent: (event: SSEEvent) => void,
+  onError?: (error: unknown) => void,
+  onComplete?: () => void,
+) {
+  const response = await fetch(`${getApiBase()}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(),
     },
-    body: JSON.stringify({
-      conversationId,
-      messages: [{ content: message, messageType: 'TEXT' }],
-    }),
+    body: JSON.stringify(body),
   });
 
   // Token 无效或已过期时返回 HTTP 401
   if (response.status === 401) {
-    throw new Error('UNAUTHORIZED');
+    throw new TripApiError('UNAUTHORIZED');
   }
-
-  if (!response.ok || !response.body) {
-    throw new Error(`HTTP ${response.status}`);
+  // 参数预检查可能以HTTP 200返回R错误，不能把JSON错误当作空SSE成功。
+  if (!response.ok || response.headers.get('content-type')?.includes('application/json')) {
+    await readTripResponse<unknown>(response);
+    throw new TripApiError('服务未返回消息流');
   }
+  if (!response.body) throw new TripApiError('服务未返回消息流');
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -46,6 +69,7 @@ export async function sendChatMessageSSE(
   let currentEvent = 'message';
   // 按 SSE 规范，一个事件的多行 data: 字段需要合并后再派发，否则换行符丢失
   let pendingDataLines: string[] = [];
+  let terminalReceived = false;
 
   /** Trip 的 SSE 使用默认 message 事件，实际类型在 JSON 的 type 字段中。 */
   const dispatchTripEvent = (raw: string) => {
@@ -64,6 +88,10 @@ export async function sendChatMessageSSE(
         break;
       case 'conversation_ready':
       case 'run_ended':
+        if (payload.type === 'run_ended') terminalReceived = true;
+        onEvent({ event: payload.type, data: JSON.stringify(payload.data ?? {}) });
+        break;
+      case 'itinerary_page_ready':
         onEvent({ event: payload.type, data: JSON.stringify(payload.data ?? {}) });
         break;
       default:
@@ -90,7 +118,10 @@ export async function sendChatMessageSSE(
       const { done, value } = await reader.read();
       if (done) {
         // 流结束时派发尚未触发的最后一个事件
+        buffer += decoder.decode();
+        if (buffer.startsWith('data:')) pendingDataLines.push(buffer.slice(5).trim());
         flushEvent();
+        if (!terminalReceived) throw new TripApiError('连接已结束，尚未收到执行结果，请刷新会话状态');
         break;
       }
 
@@ -112,78 +143,15 @@ export async function sendChatMessageSSE(
     }
   } catch (err) {
     onError?.(err);
+    throw err;
   } finally {
+    reader.releaseLock();
     onComplete?.();
   }
 }
 
-export async function sendUserResponseSSE(
-  sessionId: string,
-  toolUseId: string,
-  response: unknown,
-  onEvent: (event: SSEEvent) => void,
-  onError?: (err: any) => void,
-  onComplete?: () => void,
-) {
-  const res = await fetch(`${getApiBase()}/api/chat/respond`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(),
-    },
-    body: JSON.stringify({ sessionId, toolUseId, response }),
-  });
-
-  if (res.status === 401) {
-    throw new Error('UNAUTHORIZED');
-  }
-
-  if (!res.ok || !res.body) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-  let currentEvent = 'message';
-  let pendingDataLines: string[] = [];
-
-  const flushEvent = () => {
-    if (pendingDataLines.length > 0) {
-      const data = pendingDataLines.join('\n');
-      if (data) onEvent({ event: currentEvent, data });
-      pendingDataLines = [];
-    }
-    currentEvent = 'message';
-  };
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        flushEvent();
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event:')) {
-          currentEvent = line.slice(6).trim();
-        } else if (line.startsWith('data:')) {
-          pendingDataLines.push(line.slice(5).trim());
-        } else if (line.trim() === '') {
-          flushEvent();
-        }
-      }
-    }
-  } catch (err) {
-    onError?.(err);
-  } finally {
-    onComplete?.();
-  }
+export async function sendApprovalReplaySSE(request: ApprovalReplayRequest, onEvent: (event: SSEEvent) => void) {
+  return streamTripRequest('/api/conversation/replay', request, onEvent);
 }
 
 /**
@@ -191,7 +159,7 @@ export async function sendUserResponseSSE(
  * @returns 是否成功打断了正在运行的流
  */
 export async function interruptAgent(sessionId: string): Promise<boolean> {
-  const res = await fetch(`${getApiBase()}/api/chat/${sessionId}/interrupt`, {
+  const res = await fetch(`${getApiBase()}/api/conversation/interrupt/${encodeURIComponent(sessionId)}`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -204,84 +172,9 @@ export async function interruptAgent(sessionId: string): Promise<boolean> {
     throw new Error(`HTTP ${res.status}`);
   }
 
-  const data = await res.json();
-  return data.interrupted === true;
+  await readTripResponse<void>(res);
+  return true;
 }
-
-/**
- * 用户审批敏感工具调用（ToolConfirmationHook 触发的 HITL 确认）。
- *
- * @param sessionId 会话 ID
- * @param decision  'approve' 表示执行原敏感工具，'reject' 表示取消
- */
-export async function confirmSensitiveToolSSE(
-  sessionId: string,
-  decision: 'approve' | 'reject',
-  onEvent: (event: SSEEvent) => void,
-  onError?: (err: any) => void,
-  onComplete?: () => void,
-) {
-  const res = await fetch(`${getApiBase()}/api/chat/${sessionId}/confirm`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(),
-    },
-    body: JSON.stringify({ decision }),
-  });
-
-  if (res.status === 401) {
-    throw new Error('UNAUTHORIZED');
-  }
-
-  if (!res.ok || !res.body) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-  let currentEvent = 'message';
-  let pendingDataLines: string[] = [];
-
-  const flushEvent = () => {
-    if (pendingDataLines.length > 0) {
-      const data = pendingDataLines.join('\n');
-      if (data) onEvent({ event: currentEvent, data });
-      pendingDataLines = [];
-    }
-    currentEvent = 'message';
-  };
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        flushEvent();
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event:')) {
-          currentEvent = line.slice(6).trim();
-        } else if (line.startsWith('data:')) {
-          pendingDataLines.push(line.slice(5).trim());
-        } else if (line.trim() === '') {
-          flushEvent();
-        }
-      }
-    }
-  } catch (err) {
-    onError?.(err);
-  } finally {
-    onComplete?.();
-  }
-}
-
 
 export interface RemoteConversation {
   id: string;
@@ -290,12 +183,7 @@ export interface RemoteConversation {
   updatedAt: number;
 }
 
-export interface RemoteMessage {
-  id: string;
-  role: 'user' | 'agent' | 'system';
-  content: string;
-  agentName?: string;
-  timestamp: number;
+export interface RemoteMessage extends Message {
   thinking?: string;
   messageContentType?: 'TEXT' | 'IMAGE' | 'VOICE';
   extra?: Record<string, any>;
@@ -401,10 +289,12 @@ export async function sendDebugAgentMessageSSE(
 
 /** Trip 普通接口使用 R<T> 包装；HTTP 200 不等于业务查询成功。 */
 async function readTripResponse<T>(res: Response): Promise<T> {
-  if (res.status === 401) throw new Error('UNAUTHORIZED');
-  const body = await res.json() as { success: boolean; message?: string; data: T };
+  if (res.status === 401) throw new TripApiError('UNAUTHORIZED');
+  let body: { success: boolean; code?: string; message?: string; data: T };
+  try { body = await res.json(); } catch { throw new TripApiError(`HTTP ${res.status}：服务响应无法解析`); }
+  if (body.code === 'TA100003') throw new TripApiError('UNAUTHORIZED', body.code);
   if (!res.ok || body.success !== true) {
-    throw new Error(body.message || `HTTP ${res.status}`);
+    throw new TripApiError(body.message || `HTTP ${res.status}`, body.code);
   }
   return body.data;
 }
@@ -422,7 +312,7 @@ export async function fetchConversations(signal?: AbortSignal): Promise<RemoteCo
   }));
 }
 
-interface TripHistoryMessage {
+export interface TripHistoryMessage extends Omit<RemoteMessage, 'timestamp'> {
   id: string;
   role: 'user' | 'user_resume' | 'agent' | 'agent_hitl' | 'system';
   content: string;
@@ -433,6 +323,11 @@ interface TripHistoryMessage {
   extra?: Record<string, any>;
   feedback?: RemoteMessage['feedback'];
   feedbackAt?: number;
+}
+
+/** SSE正式审批卡片与历史消息共用同一映射，保留agent_hitl角色和批次凭证。 */
+export function mapTripMessage(row: TripHistoryMessage): RemoteMessage {
+  return { ...row, content: row.content ?? '', timestamp: row.created ?? 0 };
 }
 
 /** 当前历史页一次展示完整会话，逐页读取，避免只显示前 50 条而遗漏最新回复。 */
@@ -446,12 +341,7 @@ export async function fetchMessages(conversationId: string, signal?: AbortSignal
     const data = await readTripResponse<{ pages: number; resultList: TripHistoryMessage[] }>(res);
     const rows = data?.resultList ?? [];
     for (const row of rows) {
-      messages.set(row.id, {
-        ...row,
-        role: row.role === 'user_resume' ? 'user' : row.role === 'agent_hitl' ? 'agent' : row.role,
-        content: row.content ?? '',
-        timestamp: row.created ?? 0,
-      });
+      messages.set(row.id, mapTripMessage(row));
     }
     if (rows.length === 0 || page >= data.pages) break;
   }

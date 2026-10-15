@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.Set;
+
 /**
  * @author hongqy
  */
@@ -51,6 +53,11 @@ public class MasterAgentConfigProperties {
     private int toolFailureLimit = 2;
 
     /**
+     * 子Agent执行前需要人工确认的业务工具名，默认不额外配置ASK规则。
+     */
+    private Set<String> approvalRequiredTools = Set.of();
+
+    /**
      * 上下文压缩配置
      */
     private CompressConfig compress = new CompressConfig();
@@ -69,8 +76,9 @@ public class MasterAgentConfigProperties {
         /** 同步取得子Agent结果，不提升为后台任务，默认开启。 */
         private boolean forceSync = true;
 
-        /** 子会话待审批时禁止普通续接或新建同类型会话绕过，默认开启；不提供子审批恢复。 */
-        private boolean blockPendingApproval = true;
+        /** 旧委派模式的兼容配置；新Master统一交由框架收口，不再启用ASK转ERROR。 */
+        @Deprecated
+        private boolean blockPendingApproval = false;
 
         /** 同步等待上限，单位秒，SDK允许1到600秒；独立于普通工具执行超时。 */
         private int syncTimeoutSeconds = 600;

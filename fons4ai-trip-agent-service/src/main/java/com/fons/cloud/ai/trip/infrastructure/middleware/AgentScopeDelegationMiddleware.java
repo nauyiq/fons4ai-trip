@@ -38,6 +38,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 /**
@@ -45,7 +48,7 @@ import java.util.function.Function;
  *
  * <p>通过标准middleware入口接入，不构建或继承Fons Agent。
  * 首次onAgent进入时，在核心执行前一次性装饰该原生Agent独立持有的委派工具；
- * 后续调用只检查初始化标记，不重复注册。并发首次调用通过Toolkit锁串行初始化。
+ * 后续调用只检查初始化标记，不重复注册。私有锁只保护工具安装，不覆盖异步执行。
  * 真实工具Schema同时用于模型声明和SDK参数校验，避免只修改提示而没有执行约束。
  * 可纠正的调用错误返回原生工具错误结果，继续由SDK发布事件、保存历史并让模型纠错；
  * 有效调用、权限审批、中断和INPUT_REQUIRED均交给原生链路处理。
@@ -68,6 +71,12 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
 
     /** 构建期确定的不可变策略，所有请求只读取，不修改。 */
     private final AgentScopeDelegationPolicy policy;
+
+    /** 框架会再次包装委派工具，不能只根据最外层工具类型判断是否已安装。 */
+    private final Map<Toolkit, Boolean> adaptedToolkits = new WeakHashMap<>();
+
+    /** 稳定的安装锁；弱键记录不延长Toolkit生命周期，所有访问均在此锁内。 */
+    private final Lock adaptationLock = new ReentrantLock();
 
     public AgentScopeDelegationMiddleware(AgentScopeDelegationPolicy policy) {
         if (policy == null) {
@@ -159,12 +168,17 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
 
     /** 核心执行前一次性适配原生Toolkit；不在每轮模型调用中修改共享工具。 */
     private void adaptToolkit(Toolkit toolkit) {
-        synchronized (toolkit) {
+        adaptationLock.lock();
+        try {
+            if (adaptedToolkits.containsKey(toolkit)) {
+                return;
+            }
             // 原生工具包装本身就是初始化标记，无需额外持有Agent或维护运行状态表。
             if (toolkit.getTool("agent_spawn") instanceof DelegationTool adapted) {
                 if (!policy.equals(adapted.delegationPolicy)) {
                     throw SystemIntervalException.of("同一Agent不能注册不同的委派策略");
                 }
+                adaptedToolkits.put(toolkit, true);
                 return;
             }
             if (!(toolkit.getTool("agent_spawn") instanceof ToolBase)) {
@@ -207,6 +221,9 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
             }
             adaptedTools.stream().filter(tool -> "agent_spawn".equals(tool.getName()))
                     .forEach(toolkit::registerAgentTool);
+            adaptedToolkits.put(toolkit, true);
+        } finally {
+            adaptationLock.unlock();
         }
     }
 

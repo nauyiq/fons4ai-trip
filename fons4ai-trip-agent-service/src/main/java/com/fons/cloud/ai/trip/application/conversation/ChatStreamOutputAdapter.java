@@ -7,6 +7,9 @@ import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.agent.model.runtime.AgentRunState;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutePipeline;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
+import com.fons.cloud.ai.trip.common.vo.MessageInfo;
+import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
+import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.reactor.api.ReactiveTaskRun;
 import com.fons.cloud.reactor.model.ReactiveTaskState;
@@ -18,18 +21,20 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 
 /**
  * 将一次管道Run的过程事件和权威收口结果适配为应用层聊天流。
  *
  * <p>流开始时先发送包含conversationId的{@code conversation_ready}事件，
- * 原有Agent事件保持原样；事件通道结束后读取同一个Run的completion，在终态前按需发送
+ * 框架内部HITL过程通知不直接透传；事件通道结束后读取同一个Run的completion，在终态前按需发送
  * {@code itinerary_page_ready}，最后追加{@code run_ended}。两次订阅的是同一个Run的不同通道，不会再次执行管道。
  * 结果处理器先于completion运行，因此该事件也表示本轮后置处理已经返回。</p>
  *
  * <p>终态事件的data包含conversationId、pipelineRunId、可用时的agentRunId、state和nextAction。
  * nextAction取值为none、input_required或approval；INPUT_REQUIRED对应的state仍为completed，
- * 结构化交互信息放在humanInTheLoopInfos中，不表示审批暂停。</p>
+ * 信息补充放在humanInTheLoopInfos中，不表示审批暂停；审批暂停使用已持久化的
+ * approvalMessages，并携带同批pauseId、pauseVersion及approvalReady。</p>
  *
  * <p>state描述本轮Agent执行状态，不代表所有业务目标均已成功、审核通过或预订完成。
  * 任务清单是过程记录，不能用清单全部completed替代候选、方案及审核的实际业务结果。</p>
@@ -44,16 +49,33 @@ public class ChatStreamOutputAdapter {
 
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
                               CandidateOwner owner) {
+        return adapt(run, owner, ignored -> Mono.just(List.of()));
+    }
+
+    /**
+     * completion确认Pipeline已收口，beforeTerminal负责交接租约并返回已持久化的正式审批消息。
+     * 交接失败只输出失败终态，不向客户端开放尚未就绪的审批。
+     */
+    public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
+                              CandidateOwner owner,
+                              Function<AgentExecutePipeline.PipelineResult, Mono<List<MessageInfo>>> beforeTerminal) {
         String conversationId = owner.conversationId();
         return Flux.defer(() -> Flux.just(conversationReadyEvent(conversationId, run.runId()))
                 .concatWith(run.events()
+                        .filter(event -> !isInternalHitl(event))
                         // 过程事件不是权威终态；即使过程通道失败，也要读取completion。
                         .onErrorResume(error -> {
                             log.warn("聊天过程事件通道异常，等待管道最终结果，pipelineRunId:{}", run.runId(), error);
                             return Flux.empty();
                         }))
                 .concatWith(run.completion()
-                        .map(result -> completedEvent(result, conversationId))
+                        .flatMap(result -> {
+                            if (run.state() != ReactiveTaskState.COMPLETED) {
+                                return Mono.error(SystemIntervalException.of("Pipeline尚未完成，不能发布正式审批"));
+                            }
+                            return Mono.defer(() -> beforeTerminal.apply(result))
+                                    .map(messages -> completedEvent(result, conversationId, messages));
+                        })
                         .onErrorResume(error -> {
                             log.warn("聊天管道未形成最终结果，pipelineRunId:{}", run.runId(), error);
                             return Mono.just(unresolvedEvent(run.runId(), run.state(), conversationId));
@@ -61,6 +83,16 @@ public class ChatStreamOutputAdapter {
                         .flatMapMany(terminalEvent -> pageReadyEvent(owner)
                                 .concatWith(Mono.just(terminalEvent))))
                 .doFinally(signal -> pageNotificationRegistry.discard(owner)));
+    }
+
+    /** 过程通知不是业务审批凭证；正式卡片仅从持久化后的run_ended获得。 */
+    private static boolean isInternalHitl(String event) {
+        try {
+            return "hitl".equalsIgnoreCase(JSONObject.parseObject(event).getString("type"));
+        } catch (RuntimeException error) {
+            // 保留原有非JSON过程消息的兼容行为，不解析模型正文来识别审批。
+            return false;
+        }
     }
 
     private Mono<String> pageReadyEvent(CandidateOwner owner) {
@@ -82,7 +114,8 @@ public class ChatStreamOutputAdapter {
         return event("conversation_ready", data);
     }
 
-    private String completedEvent(AgentExecutePipeline.PipelineResult result, String conversationId) {
+    private String completedEvent(AgentExecutePipeline.PipelineResult result, String conversationId,
+                                  List<MessageInfo> approvalMessages) {
         AgentRunResult master = result.masterAgentResult();
         List<HumanInTheLoopInfo> interactions = master.getHumanInTheLoopInfos();
         JSONObject data = new JSONObject();
@@ -91,7 +124,18 @@ public class ChatStreamOutputAdapter {
         data.put("agentRunId", master.getRunId());
         data.put("state", master.getState().name().toLowerCase(Locale.ROOT));
         data.put("nextAction", nextAction(master.getState(), interactions));
-        if (!interactions.isEmpty()) {
+        if (master.getState() == AgentRunState.WAITING_APPROVAL) {
+            if (approvalMessages.size() != interactions.size() || approvalMessages.isEmpty()
+                    || approvalMessages.stream().anyMatch(message -> !ChatMessageHitlStatus.PENDING.getCode()
+                    .equals(message.getHitlStatus()))) {
+                throw SystemIntervalException.of("未取得完整且就绪的持久化审批消息");
+            }
+            MessageInfo first = approvalMessages.getFirst();
+            data.put("pauseId", first.getPauseId());
+            data.put("pauseVersion", first.getPauseVersion());
+            data.put("approvalReady", true);
+            data.put("approvalMessages", approvalMessages);
+        } else if (!interactions.isEmpty()) {
             data.put("humanInTheLoopInfos", interactions);
         }
         if (master.getState() != AgentRunState.COMPLETED

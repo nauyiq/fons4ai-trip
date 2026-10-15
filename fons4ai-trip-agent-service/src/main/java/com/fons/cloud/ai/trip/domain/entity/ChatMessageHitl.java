@@ -33,6 +33,12 @@ public class ChatMessageHitl extends BaseEntity {
     @TableId(type = IdType.INPUT)
     private String messageId;
 
+    /** 审批所属会话，用于整批就绪和待审批入口检查。 */
+    private String conversationId;
+
+    /** 保存本批凭证的Pipeline运行ID，必须完成执行权交接后才能开放审批。 */
+    private String pipelineRunId;
+
     /**
      * Agent返回的HITL标识
      */
@@ -48,10 +54,25 @@ public class ChatMessageHitl extends BaseEntity {
      */
     private String checkpointId;
 
+    /** 一次Run收口产生的审批批次，同批多条消息共用此值。 */
+    private String pauseId;
+
+    /** 框架批次保存版本，整批恢复时原样使用。 */
+    private Long pauseVersion;
+
+    /** 不透明恢复引用，原生父子路由保留在框架共享状态中。 */
+    private String resumeRef;
+
     /**
-     * HITL处理状态：PENDING/RESUMING/CONSUMED
+     * HITL处理状态：PREPARED/PENDING/RESUMING/CONSUMED/FAILED
      */
     private ChatMessageHitlStatus status;
+
+    /** 成功占用本批票证的提交标识，用于审计及重复请求识别。 */
+    private String resumeRequestId;
+
+    /** 本次恢复的Agent/Trace运行ID，所有状态更新必须匹配此持有者。 */
+    private String resumeRunId;
 
     /**
      * Agent返回的审批展示数据，JSON结构
@@ -66,13 +87,23 @@ public class ChatMessageHitl extends BaseEntity {
      * @return 消息HITL扩展实体
      */
     public static ChatMessageHitl create(String messageId, HumanInTheLoopInfo info) {
+        return create(messageId, info, null, null);
+    }
+
+    /** 保存完整可信凭证；新批次先准备，正式开放由应用层完成执行权交接后决定。 */
+    public static ChatMessageHitl create(String messageId, HumanInTheLoopInfo info,
+                                         String conversationId, String pipelineRunId) {
         return ChatMessageHitl.builder()
                 .messageId(messageId)
+                .conversationId(conversationId)
+                .pipelineRunId(pipelineRunId)
                 .hitlId(info.getId())
                 .originRunId(info.getOriginRunId())
-                // 当前框架返回的HITL ID就是恢复checkpoint；两个字段分开保存，避免语义耦合。
-                .checkpointId(info.getId())
-                .status(ChatMessageHitlStatus.PENDING)
+                .checkpointId(info.getCheckpointId())
+                .pauseId(info.getPauseId())
+                .pauseVersion(info.getPauseVersion())
+                .resumeRef(info.getResumeRef())
+                .status(ChatMessageHitlStatus.PREPARED)
                 .hitlData(info.getData() == null ? null : JSON.toJSONString(info.getData()))
                 .build();
     }

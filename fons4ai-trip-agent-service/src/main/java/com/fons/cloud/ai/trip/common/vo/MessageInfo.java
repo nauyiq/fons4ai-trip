@@ -75,10 +75,25 @@ public class MessageInfo implements Serializable {
      */
     private String hitlId;
 
+    /** 同次中断的审批批次标识；同批卡片统一提交。 */
+    private String pauseId;
+
+    /** 框架保存的审批版本，禁止使用过期决定。 */
+    private Long pauseVersion;
+
+    /** 单项审批的不透明恢复引用。 */
+    private String resumeRef;
+
     /**
      * 审批状态 {@link com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus}
      */
     private String hitlStatus;
+
+    /** 已接受的整批提交标识，刷新后用于确认原提交状态。 */
+    private String resumeRequestId;
+
+    /** 处理该决定的Agent/Trace运行ID，用于关联审计。 */
+    private String resumeRunId;
 
     /**
      * 人工审批的内容

@@ -1,6 +1,13 @@
 logging:
   config: classpath:logback.xml
-
+  level:
+    # 模型请求与响应
+    io.agentscope.extensions.model.dashscope: DEBUG
+    io.agentscope.extensions.model.openai: DEBUG
+    # Agent执行、工具调用及Harness协作
+    io.agentscope.core: DEBUG
+    io.agentscope.harness: DEBUG
+    io.agentscope.core.model.transport: INFO
 
 server:
   port: ${SERVER_PORT:8080}
@@ -64,6 +71,11 @@ sys:
       secret-key: ${OSS_SECRET_KEY}
 
 trip:
+  agent:
+    master:
+      approval-required-tools:
+        - query_travel_orders
+        - query_travel_policy
   visa:
     orizn:
       # 企业服务级凭据，不向用户或模型索取。

@@ -15,9 +15,40 @@ export type TimelineItem =
   | { kind: 'booking'; data: BookingResult }
   | { kind: 'plan_html'; data: PlanHtmlData };
 
-export interface Message {
+export type ApprovalAction = 'APPROVE' | 'EDIT' | 'REJECT';
+export type ApprovalStatus = 'PREPARED' | 'PENDING' | 'RESUMING' | 'CONSUMED' | 'FAILED';
+
+/** 服务端持久化审批凭证；前端仅用批次及messageId提交，恢复路由由服务端决定。 */
+export interface ApprovalMetadata {
+  hitlId?: string;
+  pauseId?: string;
+  pauseVersion?: number;
+  resumeRef?: string;
+  hitlStatus?: ApprovalStatus;
+  hitlData?: { tools?: Array<{ id?: string; toolName?: string; desc?: string; args?: string }> };
+  resumeRequestId?: string;
+  resumeRunId?: string;
+}
+
+export interface ApprovalDecision {
+  messageId: string;
+  action: ApprovalAction;
+  /** EDIT提交完整工具参数，APPROVE/REJECT不发送params。 */
+  params?: Record<string, unknown>;
+}
+
+/** 同一次中断的全部决定，只提交一次恢复请求。 */
+export interface ApprovalReplayRequest {
+  conversationId: string;
+  pauseId: string;
+  pauseVersion: number;
+  requestId: string;
+  decisions: ApprovalDecision[];
+}
+
+export interface Message extends ApprovalMetadata {
   id: string;
-  role: 'user' | 'agent' | 'system';
+  role: 'user' | 'user_resume' | 'agent' | 'agent_hitl' | 'system';
   content: string;
   agentName?: string;
   timestamp: number;

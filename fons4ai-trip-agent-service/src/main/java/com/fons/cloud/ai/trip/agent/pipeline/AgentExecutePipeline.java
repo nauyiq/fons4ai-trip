@@ -100,6 +100,11 @@ public class AgentExecutePipeline {
         }), handler);
     }
 
+    /** 业务票证占用前的原生审批预检查，不执行前置分析步骤或Master工具。 */
+    public void validateApprovalResume(AgentRequest request) {
+        masterExecuteTaskStepHandler.validateApprovalResume(request);
+    }
+
     /**
      * 顺序执行当前管道中的全部处理器。
      *

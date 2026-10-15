@@ -21,12 +21,14 @@ interface ApiResponse<T> {
 }
 
 async function responseData<T>(response: Response, fallbackMessage: string): Promise<T> {
+  if (response.status === 401) throw new Error('UNAUTHORIZED');
   let body: ApiResponse<T> | null;
   try {
     body = await response.json() as ApiResponse<T>;
   } catch {
     throw new Error(fallbackMessage);
   }
+  if (body?.code === 'TA100003') throw new Error('UNAUTHORIZED');
   if (!response.ok || body?.success !== true || body.data == null) {
     throw new Error(body?.message || fallbackMessage);
   }

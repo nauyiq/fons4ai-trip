@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
+import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.mapper.ChatMessageHitlMapper;
 import com.fons.cloud.ai.trip.domain.mapper.ChatMessageMapper;
@@ -55,6 +56,10 @@ public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper,
         Page<ChatMessage> pageQuery = new Page<>(page, pageSize);
         return this.page(pageQuery, Wrappers.lambdaQuery(ChatMessage.class)
                 .eq(ChatMessage::getConversationId, conversationId)
+                // 与实时发布使用同一就绪条件；SQL过滤也使分页总数不泄露准备中的审批。
+                .apply("(role <> {0} OR EXISTS (SELECT 1 FROM chat_message_hitl h "
+                                + "WHERE h.message_id = chat_message.message_id AND h.status <> {1}))",
+                        ChatRole.AGENT_HITL.getCode(), ChatMessageHitlStatus.PREPARED.getCode())
                 .orderByAsc(ChatMessage::getCreated, ChatMessage::getMessageId));
     }
 
