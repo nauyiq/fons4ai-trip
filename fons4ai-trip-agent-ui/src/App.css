@@ -212,7 +212,40 @@ html, body {
   transition: all 0.12s;
 }
 
-.conv-item:hover .conv-delete { opacity: 1; }
+.conv-item:hover .conv-delete,
+.conv-item.active .conv-delete,
+.conv-item:focus-within .conv-delete { opacity: 1; }
+
+@media (hover: none) {
+  .conv-delete { opacity: 1; }
+}
+
+.conv-delete:disabled { cursor: not-allowed; }
+
+.conversation-delete-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  color: #1f2937;
+  background: #fff;
+  box-shadow: 0 16px 48px #0003;
+}
+
+.conversation-delete-dialog::backdrop { background: #11182766; }
+.conversation-delete-dialog h2 { margin: 0 0 12px; font-size: 18px; }
+.conversation-delete-dialog p { margin: 0; line-height: 1.7; overflow-wrap: anywhere; }
+.conversation-delete-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.conversation-delete-actions button {
+  padding: 7px 18px;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+.conversation-delete-actions .conversation-delete-confirm { border-color: #d92d20; color: #fff; background: #d92d20; }
+.conversation-delete-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .conv-delete:hover {
   color: #f85149;

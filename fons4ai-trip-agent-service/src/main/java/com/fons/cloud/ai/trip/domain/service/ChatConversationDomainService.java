@@ -18,6 +18,9 @@ public interface ChatConversationDomainService extends IService<ChatConversation
      */
     ChatConversation findByUseIdAndConversationId(String useId, String conversationId);
 
+    /** 仅逻辑删除当前用户没有活跃Run的会话，条件与删除在同一条SQL中完成。 */
+    boolean removeIdleConversation(String userId, String conversationId);
+
     /**
      * 将 Pipeline 运行 ID 写入 conversation.activeRunId
      * @param conversationId

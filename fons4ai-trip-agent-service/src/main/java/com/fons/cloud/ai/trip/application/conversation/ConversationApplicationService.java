@@ -367,10 +367,15 @@ public class ConversationApplicationService {
         if (conversation == null) {
             return R.failed(TripAgentResultCode.CONVERSATION_NOT_EXIST);
         }
+        if (StringUtils.isNotBlank(conversation.getActiveRunId())) {
+            return R.failed(TripAgentResultCode.CONVERSATION_RUNNING);
+        }
         // 删除会话以及聊天记录
         Boolean execute = transactionTemplate.execute(status -> {
             try {
-                Assert.isTrue(chatConversationDomainService.removeById(conversation), () -> SystemIntervalException.of("删除会话失败"));
+                // 再次在数据库中检查执行状态；删除成功持有行锁后，新的Run无法再绑定此会话。
+                Assert.isTrue(chatConversationDomainService.removeIdleConversation(userId, conversationId),
+                        () -> BusinessRuntimeException.of(TripAgentResultCode.CONVERSATION_RUNNING));
                 Assert.isTrue(chatRequestTraceDomainService.removeByConversationId(conversationId), () -> SystemIntervalException.of("删除Trace失败"));
                 Assert.isTrue(chatMessageDomainService.removeByConversationId(conversationId), () -> SystemIntervalException.of("删除聊天记录失败"));
                 return true;
@@ -610,7 +615,15 @@ public class ConversationApplicationService {
         ChatConversation conversation;
         if (StringUtils.isBlank(request.getConversationId())) {
             isNewConversation = true;
-            conversation = ChatConversation.create(request.getUserId());
+            // 仅新会话从首次有效文本生成摘要，图片/语音地址不作为标题。
+            String initialText = request.getMessages().stream()
+                    .filter(message -> message.getMessageType() == ChatMessageContentType.TEXT)
+                    .map(ChatMessageRequest::getContent)
+                    .map(StringUtils::normalizeSpace)
+                    .filter(StringUtils::isNotBlank)
+                    .findFirst()
+                    .orElse(null);
+            conversation = ChatConversation.create(request.getUserId(), initialText);
         } else {
             isNewConversation = false;
             conversation = chatConversationDomainService.findByUseIdAndConversationId(request.getUserId(), request.getConversationId());

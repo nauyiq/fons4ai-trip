@@ -23,8 +23,10 @@ public class ChatRequestTraceDomainServiceImpl extends ServiceImpl<ChatRequestTr
 
     @Override
     public boolean removeByConversationId(String conversationId) {
-        return update(Wrappers.lambdaUpdate(ChatRequestTrace.class)
+        update(Wrappers.lambdaUpdate(ChatRequestTrace.class)
                 .eq(ChatRequestTrace::getConversationId, conversationId)
                 .set(ChatRequestTrace::getDeleted, true));
+        // 没有Trace的会话也允许删除，不能因影响行数为0回滚整个清理事务。
+        return true;
     }
 }

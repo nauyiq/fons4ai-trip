@@ -14,6 +14,7 @@ import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
 import com.fons.cloud.ai.trip.infrastructure.converter.ChatMessageConverter;
 import com.fons.cloud.ai.trip.infrastructure.repository.AnalysisIntentRepository;
 import com.fons.cloud.ai.trip.infrastructure.util.SemanticsMatcherIntentRecognition;
+import com.fons.cloud.ai.agent.observability.annotation.AgentObserved;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
@@ -43,6 +44,7 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@AgentObserved(kind = AgentObserved.Kind.STEP)
 public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
     private final AnalysisIntentRepository repository;
     private final SemanticsMatcherIntentRecognition semanticsMatcherIntentRecognition;

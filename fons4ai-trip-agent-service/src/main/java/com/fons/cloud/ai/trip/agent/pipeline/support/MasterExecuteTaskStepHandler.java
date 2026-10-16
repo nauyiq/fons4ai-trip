@@ -47,6 +47,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
             /*
              * 保留原始AgentRequest，确保普通请求内容以及HITL恢复请求中的originRunId、
              * pauseId、pauseVersion、requestId及完整决定集传递给AgentScope适配器。
+             * 独立Run创建的父上下文由框架从订阅链承接，业务不再显式绑定。
              */
             AgentRun masterRun = masterAgent.run(context.getUserInput());
             if (masterRun == null) {

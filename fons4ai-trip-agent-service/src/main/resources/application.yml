@@ -55,6 +55,8 @@ sys:
   agent:
     observability:
       enabled: true
+      agentscope-tracer:
+        enabled: true
       override-global: true
       langfuse:
         enabled: true

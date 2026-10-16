@@ -2,10 +2,10 @@ import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { logout } from '../api/auth';
-import { fetchConversations, deleteConversation as deleteRemoteConversation } from '../api/chat';
+import { fetchConversations, deleteConversation as deleteRemoteConversation, TripApiError } from '../api/chat';
 import { isClusterAvailable, getClusterUrls } from '../api/config';
 import type { Conversation } from '../store/chatStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function formatTime(ts: number) {
   const d = new Date(ts);
@@ -26,12 +26,14 @@ function ConversationItem({
   onSwitch,
   onDelete,
   disabled,
+  deleting,
 }: {
   conv: Conversation;
   isActive: boolean;
   onSwitch: () => void;
   onDelete: (e: React.MouseEvent) => void;
   disabled: boolean;
+  deleting: boolean;
 }) {
   return (
     <div className={`conv-item${isActive ? ' active' : ''}`} onClick={() => { if (!disabled) onSwitch(); }} aria-disabled={disabled}>
@@ -45,12 +47,14 @@ function ConversationItem({
       </svg>
       <div className="conv-body">
         <span className="conv-title">{conv.title}</span>
-        <span className="conv-time">{formatTime(conv.updatedAt)}</span>
+        <span className="conv-time">{deleting ? '正在删除…' : formatTime(conv.updatedAt)}</span>
       </div>
       <button
         className="conv-delete"
         onClick={onDelete}
         title="删除对话"
+        aria-label={`删除会话：${conv.title}`}
+        aria-busy={deleting}
         disabled={disabled}
       >
         <svg viewBox="0 0 12 12" fill="none" width="12" height="12">
@@ -103,8 +107,21 @@ export default function Sidebar() {
   const [historyError, setHistoryError] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRetry, setHistoryRetry] = useState(0);
+  const [deleteError, setDeleteError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
+  // 同步占用删除入口，避免组件重新渲染之前的连续点击重复发起请求。
+  const deleteLock = useRef(false);
   // 流式回调更新当前会话，执行中不切换，避免把输出写入另一条历史会话。
   const runActive = conversations.some(c => c.isThinking);
+  const sidebarBusy = runActive || deletingId !== null || historyLoading;
+
+  useEffect(() => {
+    // 使用页面内模态弹窗；确认期间限制焦点，提交期间阻止其他会话操作。
+    if (deleteTarget) deleteDialog.current?.showModal();
+    else deleteDialog.current?.close();
+  }, [deleteTarget]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,6 +193,36 @@ export default function Sidebar() {
     clearAuth();
   };
 
+  const handleDelete = async (conversation: Conversation) => {
+    if (deleteLock.current || historyLoading || useChatStore.getState().conversations.some(c => c.isThinking)) return;
+    deleteLock.current = true;
+    setDeletingId(conversation.id);
+    setDeleteError('');
+    const sameLogin = () => {
+      const auth = useAuthStore.getState();
+      return auth.userId === userId && auth.token === token;
+    };
+    try {
+      if (conversation.isRemote) await deleteRemoteConversation(conversation.id);
+      // 远端成功后才移除本地记录；迟到响应不能影响另一登录态的会话。
+      if (sameLogin()) deleteConversation(conversation.id);
+    } catch (error) {
+      if (!sameLogin()) return;
+      if (error instanceof TripApiError && error.code === 'TA100010') {
+        // 另一页面已删除该会话，当前列表同步移除即可。
+        deleteConversation(conversation.id);
+      } else if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+        clearAuth();
+      } else {
+        setDeleteError(`删除失败：${error instanceof Error ? error.message : '请稍后重试'}`);
+      }
+    } finally {
+      deleteLock.current = false;
+      setDeletingId(null);
+      setDeleteTarget(null);
+    }
+  };
+
   const initial = username ? username.charAt(0).toUpperCase() : '?';
 
   return (
@@ -195,7 +242,7 @@ export default function Sidebar() {
       <div className="sidebar-new">
         <button
           className="new-chat-btn"
-          disabled={runActive}
+          disabled={sidebarBusy}
           onClick={() => {
             setView('chat');
             createConversation();
@@ -249,35 +296,45 @@ export default function Sidebar() {
         {historyLoading && <div className="history-status">正在加载会话列表…</div>}
         {historyError && <div className="history-status" role="alert">
           会话列表加载失败：{historyError}
-          <button type="button" disabled={runActive} onClick={() => setHistoryRetry(n => n + 1)}>重试</button>
+          <button type="button" disabled={sidebarBusy} onClick={() => setHistoryRetry(n => n + 1)}>重试</button>
         </div>}
+        {deleteError && <div className="history-status" role="alert">{deleteError}</div>}
         {conversations.map((conv) => (
           <ConversationItem
             key={conv.id}
             conv={conv}
             isActive={conv.id === currentConversationId}
-            disabled={runActive}
+            disabled={sidebarBusy}
+            deleting={deletingId === conv.id}
             onSwitch={() => { setView('chat'); switchConversation(conv.id); }}
-            onDelete={async (e) => {
+            onDelete={(e) => {
               e.stopPropagation();
-              if (conv.isRemote) {
-                try {
-                  await deleteRemoteConversation(conv.id);
-                } catch (err: any) {
-                  if (err?.message === 'UNAUTHORIZED') {
-                    clearAuth();
-                    return;
-                  }
-                  console.error('删除对话失败', err);
-                  setHistoryError(`删除会话失败：${err?.message || '未知错误'}`);
-                  return;
-                }
-              }
-              deleteConversation(conv.id);
+              setDeleteTarget(conv);
             }}
           />
         ))}
       </div>
+
+      <dialog
+        ref={deleteDialog}
+        className="conversation-delete-dialog"
+        aria-labelledby="conversation-delete-title"
+        aria-describedby="conversation-delete-description"
+        onCancel={(event) => {
+          if (deleteLock.current) event.preventDefault();
+          else setDeleteTarget(null);
+        }}
+      >
+        <h2 id="conversation-delete-title">删除会话</h2>
+        <p id="conversation-delete-description">确定删除会话“{deleteTarget?.title}”及其聊天记录吗？</p>
+        <div className="conversation-delete-actions">
+          <button type="button" disabled={deletingId !== null} onClick={() => setDeleteTarget(null)}>取消</button>
+          <button type="button" className="conversation-delete-confirm" disabled={deletingId !== null}
+            onClick={() => { if (deleteTarget) void handleDelete(deleteTarget); }}>
+            {deletingId !== null ? '删除中…' : '删除'}
+          </button>
+        </div>
+      </dialog>
 
       {/* Footer: user info + logout */}
       <div className="sidebar-footer">

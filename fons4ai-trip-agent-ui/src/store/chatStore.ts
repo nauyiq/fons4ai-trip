@@ -232,10 +232,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       conversations: state.conversations.map((c) => {
         if (c.id !== state.currentConversationId) return c;
-        // Auto-set title from first user message
+        // 首条文本先显示临时摘要；绑定远端会话后由服务端标题校准。
         const newTitle =
-          c.title === '新对话' && msg.role === 'user'
-            ? msg.content.slice(0, 24)
+          !c.isRemote && c.title === '新对话' && msg.role === 'user'
+            && (!msg.messageContentType || msg.messageContentType === 'TEXT')
+            ? Array.from(msg.content.replace(/\s+/gu, ' ').trim()).slice(0, 24).join('') || c.title
             : c.title;
         return {
           ...c,

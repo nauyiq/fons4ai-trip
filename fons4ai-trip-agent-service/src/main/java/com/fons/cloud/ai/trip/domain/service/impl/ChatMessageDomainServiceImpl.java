@@ -10,7 +10,6 @@ import com.fons.cloud.ai.trip.domain.mapper.ChatMessageHitlMapper;
 import com.fons.cloud.ai.trip.domain.mapper.ChatMessageMapper;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
 import lombok.RequiredArgsConstructor;
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * @author hongqy
@@ -66,19 +64,19 @@ public class ChatMessageDomainServiceImpl extends ServiceImpl<ChatMessageMapper,
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean removeByConversationId(String conversationId) {
-        boolean update = update(Wrappers.lambdaUpdate(ChatMessage.class)
+        // 先读取审批消息ID，逻辑删除之后的普通查询会自动排除这些消息。
+        List<String> hitlMessageIds = list(Wrappers.lambdaQuery(ChatMessage.class)
+                .eq(ChatMessage::getConversationId, conversationId)
+                .eq(ChatMessage::getRole, ChatRole.AGENT_HITL)).stream()
+                .map(ChatMessage::getMessageId).toList();
+        update(Wrappers.lambdaUpdate(ChatMessage.class)
                 .eq(ChatMessage::getConversationId, conversationId)
                 .set(ChatMessage::getDeleted, true));
 
-        if (update) {
-            List<ChatMessage> hitlMessages = list(Wrappers.lambdaQuery(ChatMessage.class)
-                    .eq(ChatMessage::getConversationId, conversationId)
-                    .eq(ChatMessage::getRole, ChatRole.AGENT_HITL));
-            if (CollectionUtils.isNotEmpty(hitlMessages)) {
-               return chatMessageHitlMapper.deleteBatchIds(hitlMessages.stream().map(ChatMessage::getMessageId).collect(Collectors.toList())) > 0;
-            }
+        if (!hitlMessageIds.isEmpty()) {
+            chatMessageHitlMapper.deleteBatchIds(hitlMessageIds);
         }
-
-        return update;
+        // 空会话或重复清理没有影响行也是成功；实际SQL异常由外层事务统一回滚。
+        return true;
     }
 }

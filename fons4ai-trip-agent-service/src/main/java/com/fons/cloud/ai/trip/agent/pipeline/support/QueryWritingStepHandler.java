@@ -13,6 +13,7 @@ import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
 import com.fons.cloud.ai.trip.infrastructure.converter.ChatMessageConverter;
 import com.fons.cloud.ai.trip.infrastructure.repository.AnalysisIntentRepository;
+import com.fons.cloud.ai.agent.observability.annotation.AgentObserved;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import io.agentscope.core.message.Msg;
@@ -36,6 +37,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@AgentObserved(kind = AgentObserved.Kind.STEP)
 public class QueryWritingStepHandler extends AbstractAgentExecuteHandler {
     private final AnalysisIntentRepository repository;
     private final ChatMessageDomainService chatMessageDomainService;

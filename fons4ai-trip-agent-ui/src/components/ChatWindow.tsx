@@ -5,7 +5,7 @@ import { useChatStore, isPersistedMessageId } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { logout } from '../api/auth';
-import { sendChatMessageSSE, sendApprovalReplaySSE, interruptAgent, fetchMessages, mapTripMessage, updateMessageFeedback, fetchDebugAgents, sendDebugAgentMessageSSE, type DebugAgentInfo, type RemoteMessage, type TripHistoryMessage } from '../api/chat';
+import { sendChatMessageSSE, sendApprovalReplaySSE, interruptAgent, fetchConversations, fetchMessages, mapTripMessage, updateMessageFeedback, fetchDebugAgents, sendDebugAgentMessageSSE, type DebugAgentInfo, type RemoteMessage, type TripHistoryMessage } from '../api/chat';
 import AgentMessageBlock from './AgentMessageBlock';
 import ApprovalBatchCard from './ApprovalBatchCard';
 import UserInteractionCard from './UserInteractionCard';
@@ -657,6 +657,16 @@ export default function ChatWindow() {
     } finally {
       const id = streamConversation.current;
       if (!debugAgent && useAuthStore.getState().userId === userId && useChatStore.getState().conversations.some(item => item.id === id && item.isRemote)) {
+        // 新会话绑定后校准服务端标题，后台刷新不阻塞历史核对或下一次输入。
+        if (!currentConv?.isRemote) {
+          void fetchConversations().then(remote => {
+            const auth = useAuthStore.getState();
+            // 迟到响应不能写入退出登录或重新登录后的会话缓存。
+            if (auth.userId !== userId || auth.token !== token) return;
+            const conversation = remote.find(item => item.id === id);
+            if (conversation) useChatStore.getState().updateConversationTitle(id, conversation.title);
+          }).catch(error => console.warn('同步会话标题失败', error));
+        }
         try { await refreshHistory(id); } catch { /* 不能确认状态时禁用后续审批和普通消息。 */ }
       }
       if (useChatStore.getState().currentConversationId === id) setThinking(false);

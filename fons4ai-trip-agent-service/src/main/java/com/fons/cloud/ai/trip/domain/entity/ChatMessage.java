@@ -240,7 +240,7 @@ public class ChatMessage extends BaseEntity {
     }
 
     public static String generateMessageId() {
-        return IdGenerator.next(IdGenerator.Prefix.CONVERSATION);
+        return IdGenerator.next(IdGenerator.Prefix.MESSAGE);
     }
 
 

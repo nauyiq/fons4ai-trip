@@ -23,6 +23,15 @@ public class ChatConversationDomainServiceImpl extends ServiceImpl<ChatConversat
     }
 
     @Override
+    public boolean removeIdleConversation(String userId, String conversationId) {
+        // 与Run启动写入activeRunId竞争同一行，避免先检查再删除的时间窗口。
+        return remove(Wrappers.lambdaQuery(ChatConversation.class)
+                .eq(ChatConversation::getUserId, userId)
+                .eq(ChatConversation::getConversationId, conversationId)
+                .isNull(ChatConversation::getActiveRunId));
+    }
+
+    @Override
     public boolean updateActiveRunId(String conversationId, String pipelineRunId) {
         return update(Wrappers.lambdaUpdate(ChatConversation.class)
                 .eq(ChatConversation::getConversationId, conversationId)
