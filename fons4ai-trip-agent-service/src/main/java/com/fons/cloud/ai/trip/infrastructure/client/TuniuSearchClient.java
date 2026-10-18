@@ -279,6 +279,18 @@ public class TuniuSearchClient implements ItinerarySearchClient {
     private JSONObject parsePayload(String text, SearchService service) {
         try {
             JSONObject payload = JSON.parseObject(text);
+            // 部分途牛MCP服务把业务JSON作为单个返回值，结构化结果为 {"result":"{...}"}。
+            // 只解开这一层明确的包装；带业务状态或其他字段的对象仍按原协议校验，避免掩盖失败。
+            if (payload != null && payload.size() == 1 && payload.containsKey("result")) {
+                Object wrappedResult = payload.get("result");
+                if (wrappedResult instanceof String resultText) {
+                    payload = JSON.parseObject(resultText);
+                } else if (wrappedResult instanceof JSONObject resultObject) {
+                    payload = resultObject;
+                } else {
+                    throw SystemIntervalException.of("途牛" + service.label() + "搜索结果包装不是有效JSON对象");
+                }
+            }
             Assert.notNull(payload, () -> SystemIntervalException.of("途牛" + service.label() + "搜索返回空业务结果"));
             return payload;
         } catch (JSONException e) {

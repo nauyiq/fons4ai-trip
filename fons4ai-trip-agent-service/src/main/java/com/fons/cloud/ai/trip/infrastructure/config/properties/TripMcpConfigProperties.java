@@ -86,6 +86,11 @@ public class TripMcpConfigProperties {
         private String endpoint;
 
         /**
+         * 天气查询服务的API Key
+         */
+        private String apiKey;
+
+        /**
          * 工具请求超时时间 默认30s
          */
         private Integer requestTimeoutSeconds = 30;

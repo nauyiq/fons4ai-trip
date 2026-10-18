@@ -16,6 +16,7 @@ import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.SearchPageRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
+import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -68,7 +69,7 @@ public class ItinerarySearchTools implements BaseTool {
             @ToolParam(name = "page_number", description = "页码，从1开始；不传表示首页", required = false) Integer pageNumber,
             @ToolParam(name = "continuation_token", description = "上一页data.pagination.continuationToken；首页不要传", required = false) String continuationToken) {
         String userId = context.getUserId();
-        String conversationId = context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         log.info("[TOOL][search_flights] userId={}, conversationId={}, origin={}, destination={}, departureDate={}, pageNumber={}",
                 userId, conversationId, origin, destination, departureDate, pageNumber);
 
@@ -111,7 +112,7 @@ public class ItinerarySearchTools implements BaseTool {
             @ToolParam(name = "page_number", description = "页码，从1开始；不传表示首页", required = false) Integer pageNumber,
             @ToolParam(name = "continuation_token", description = "上一页data.pagination.continuationToken；首页不要传", required = false) String continuationToken) {
         String userId = context.getUserId();
-        String conversationId = context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         log.info("[TOOL][search_trains] userId={}, conversationId={}, origin={}, destination={}, departureDate={}, pageNumber={}",
                 userId, conversationId, origin, destination, departureDate, pageNumber);
 
@@ -154,7 +155,7 @@ public class ItinerarySearchTools implements BaseTool {
             @ToolParam(name = "page_number", description = "页码，从1开始；不传表示首页", required = false) Integer pageNumber,
             @ToolParam(name = "continuation_token", description = "上一页data.pagination.continuationToken；首页不要传", required = false) String continuationToken) {
         String userId = context.getUserId();
-        String conversationId = context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         log.info("[TOOL][search_hotels] userId={}, conversationId={}, city={}, checkInDate={}, checkOutDate={}, pageNumber={}",
                 userId, conversationId, city, checkInDate, checkOutDate, pageNumber);
 
@@ -184,7 +185,8 @@ public class ItinerarySearchTools implements BaseTool {
 
     @Tool(name = "search_hotel_rooms", description = "查询指定酒店的具体房型报价。必须先调用search_hotels，"
             + "再把所选酒店候选source.itemId作为hotel_id传入。每个房型报价方案会生成独立候选并自动保存，"
-            + "成功返回的确定单间每晚报价可供plan_itinerary计算；此工具不返回可长期复用的预订令牌。")
+            + "必须读取price.basis和warnings；UNKNOWN表示计价口径未确认，只能展示原始金额，不能乘晚数或参与住宿总价计算。"
+            + "此工具不返回可长期复用的预订令牌。")
     public R<ItinerarySearchResult<HotelCandidate>> searchHotelRooms(
             RuntimeContext context,
             @ToolParam(name = "hotel_id", description = "search_hotels候选source.itemId中的酒店标识，必填") String hotelId,
@@ -194,7 +196,7 @@ public class ItinerarySearchTools implements BaseTool {
             @ToolParam(name = "adult_count", description = "成人数，须与原酒店搜索条件一致；不传默认2人", required = false) Integer adultCount,
             @ToolParam(name = "child_ages", description = "儿童年龄列表，须与原酒店搜索条件一致；没有儿童时不传或传空列表", required = false) List<Integer> childAges) {
         String userId = context.getUserId();
-        String conversationId = context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         log.info("[TOOL][search_hotel_rooms] userId={}, conversationId={}, hotelId={}, city={}, checkInDate={}, checkOutDate={}",
                 userId, conversationId, hotelId, city, checkInDate, checkOutDate);
 

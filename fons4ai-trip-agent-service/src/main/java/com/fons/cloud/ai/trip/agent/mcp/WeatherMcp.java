@@ -34,6 +34,8 @@ public class WeatherMcp extends BaseMcp {
             McpClientWrapper client = McpClientBuilder.create("weather-mcp")
                     // Streamable HTTP 传输
                     .streamableHttpTransport(weather.getEndpoint())
+                    // 添加授权头
+                    .header("Authorization", "Bearer " + weather.getApiKey())
                     // 工具调用请求超时
                     .timeout(Duration.ofSeconds(weather.getRequestTimeoutSeconds()))
                     // MCP 初始化握手超时

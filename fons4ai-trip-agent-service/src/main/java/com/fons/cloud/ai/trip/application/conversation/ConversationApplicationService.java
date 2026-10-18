@@ -23,6 +23,7 @@ import com.fons.cloud.ai.trip.common.request.ConversationInterruptRequest;
 import com.fons.cloud.ai.trip.common.request.ConversationReplayRequest;
 import com.fons.cloud.ai.trip.common.request.ConversationStreamRequest;
 import com.fons.cloud.ai.trip.common.vo.MessageInfo;
+import com.fons.cloud.ai.trip.common.vo.ConversationExecutionInfo;
 import com.fons.cloud.ai.trip.domain.entity.ChatConversation;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessageAggregate;
@@ -120,6 +121,7 @@ public class ConversationApplicationService {
             try {
                 registered = reactiveRunManager.register(taskId, run);
             } catch (Exception error) {
+                run.cancel();
                 updateTraceStateQuietly(traceRunId, TaskState.FAILED);
                 releaseUnstartedApproval(replay);
                 return Flux.error(error);
@@ -128,6 +130,9 @@ public class ConversationApplicationService {
                 // ALREADY_RUNNING 可能是同一请求的另一订阅，不能覆盖它正在维护的 Trace。
                 updateTraceStateQuietly(traceRunId, registered == ReactiveRunManager.Registration.CANCELLED ? TaskState.INTERRUPT : TaskState.FAILED);
                 releaseUnstartedApproval(replay);
+                if (registered == ReactiveRunManager.Registration.ALREADY_RUNNING) {
+                    return Flux.error(new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING));
+                }
                 return Flux.error(SystemIntervalException.of("agent请求注册失败: " + registered));
             }
             try {
@@ -137,6 +142,8 @@ public class ConversationApplicationService {
                 }
                 updateTraceActive(aggregate.getConversationId(), traceRunId, pipelineRunId);
             } catch (Exception error) {
+                // 还未订阅的 Run 也要先确认取消，管理器不能越过 termination 提前释放。
+                run.cancel();
                 try {
                     reactiveRunManager.release(taskId, pipelineRunId);
                 } catch (Exception releaseError) {
@@ -146,36 +153,32 @@ public class ConversationApplicationService {
                 releaseUnstartedApproval(replay);
                 return Flux.error(error);
             }
+            // 独立观察实际退出：SSE断线后仍负责清理，不能在 doFinally 中提前交还执行权。
+            Mono<List<MessageInfo>> terminalMessages = run.termination().then(run.completion().materialize())
+                    .flatMap(outcome -> Mono.fromRunnable(() -> {
+                        ReactiveTaskState state = run.state();
+                        if (state == ReactiveTaskState.FAILED || state == ReactiveTaskState.CANCELLED) {
+                            updateTraceStateQuietly(traceRunId,
+                                    state == ReactiveTaskState.CANCELLED ? TaskState.INTERRUPT : TaskState.FAILED);
+                            failReplayQuietly(replay);
+                        }
+                        reactiveRunManager.release(taskId, pipelineRunId);
+                    }).subscribeOn(Schedulers.boundedElastic()).then(outcome.hasValue()
+                            ? finalizeRunResult(aggregate, outcome.get())
+                            : Mono.fromCallable(() -> {
+                                clearConversationExecution(aggregate, pipelineRunId);
+                                return List.<MessageInfo>of();
+                            }).subscribeOn(Schedulers.boundedElastic())))
+                    .cache();
+            // 从退出信号开始观察，不会提前订阅 completion 启动任务；断线也完成审批就绪发布。
+            terminalMessages.subscribe(ignored -> { }, error ->
+                    log.error("[CHAT]实际执行收口或会话占用清理失败，pipelineRunId:{}", pipelineRunId, error));
             return chatStreamOutputAdapter.adapt(run,
                             new CandidateOwner(aggregate.getConversation().getUserId(), aggregate.getConversationId()),
-                            result -> finalizeRunResult(aggregate, result))
-                    .doOnCancel(run::cancel) // 前端断开时也取消根 Run
-                    .doFinally(signal -> {
-                        try {
-                            ReactiveTaskState state = run.state();
-                            if (state == ReactiveTaskState.FAILED) {
-                                updateTraceStateQuietly(traceRunId, TaskState.FAILED);
-                                failReplayQuietly(replay);
-                            } else if (state == ReactiveTaskState.CANCELLED) {
-                                updateTraceStateQuietly(traceRunId, TaskState.INTERRUPT);
-                                failReplayQuietly(replay);
-                            }
-                        } finally {
-                            try {
-                                reactiveRunManager.release(taskId, pipelineRunId);
-                            } catch (Exception error) {
-                                log.error("[CHAT]释放Pipeline运行租约失败, taskId:{}, pipelineRunId:{}", taskId, pipelineRunId, error);
-                            }
-                            try {
-                                chatConversationDomainService.clearActiveRunIdIfMatch(aggregate.getConversationId(), pipelineRunId);
-                            } catch (Exception error) {
-                                log.error("[CHAT]清理会话活跃Pipeline运行ID失败, conversationId:{}, pipelineRunId:{}", aggregate.getConversationId(), pipelineRunId, error);
-                            }
-                        }
-                    });
+                            result -> terminalMessages, terminalMessages.then())
+                    .doOnCancel(run::cancel);
         });
     }
-
     /**
      * 中断正在执行任务的Agent
      * <p>
@@ -203,10 +206,32 @@ public class ConversationApplicationService {
             return R.failed(ResultCode.SYSTEM_BUSY);
         }
         if (result == ReactiveRunManager.CancelResult.NOT_FOUND) {
-            log.warn("[CHAT]会话活跃Pipeline运行不存在，清理过期记录, conversationId:{}, pipelineRunId:{}", request.conversationId(), activeRunId);
-            chatConversationDomainService.clearActiveRunIdIfMatch(request.conversationId(), activeRunId);
+            // 租约缺失不能证明原执行已经退出，异常重启的占用回收由后续租约治理处理。
+            log.warn("[CHAT]无法确认会话执行已退出，保留占用, conversationId:{}, pipelineRunId:{}", request.conversationId(), activeRunId);
+            return R.failed(ResultCode.SYSTEM_BUSY);
         }
         return R.success();
+    }
+
+    /** 登录态限定会话归属；取消受理不表示执行占用已经释放。 */
+    public R<ConversationExecutionInfo> execution(String userId, String conversationId) {
+        ChatConversation conversation = chatConversationDomainService.findByUseIdAndConversationId(userId, conversationId);
+        if (conversation == null) return R.failed(TripAgentResultCode.CONVERSATION_NOT_EXIST);
+        String activeRunId = conversation.getActiveRunId();
+        if (StringUtils.isBlank(activeRunId)) {
+            return R.success(new ConversationExecutionInfo(conversationId, null, "IDLE"));
+        }
+        try {
+            ReactiveRunManager.ExecutionState state = reactiveRunManager.executionState(conversation.getTaskId(), activeRunId);
+            // 数据库仍有占用但租约不存在，保留UNKNOWN，不能自动开放新请求。
+            return R.success(new ConversationExecutionInfo(conversationId, activeRunId,
+                    state == ReactiveRunManager.ExecutionState.IDLE ? "UNKNOWN" : state.name()));
+        } catch (RuntimeException error) {
+            // Redis暂时不可读不等于旧执行已经退出；响应中保留原Pipeline身份。
+            log.warn("[CHAT]无法确认执行租约，保留会话占用, conversationId:{}, pipelineRunId:{}",
+                    conversationId, activeRunId, error);
+            return R.success(new ConversationExecutionInfo(conversationId, activeRunId, "UNKNOWN"));
+        }
     }
 
     /**
@@ -254,6 +279,7 @@ public class ConversationApplicationService {
         if (conversation == null) {
             throw new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_NOT_EXIST);
         }
+        requireExecutionReleased(conversation);
         List<ChatMessageHitl> tickets = chatMessageHitlDomainService.findBatch(conversation.getConversationId(), request.getPauseId());
         validateReplayTickets(tickets, request);
         ChatMessageHitl first = tickets.getFirst();
@@ -502,7 +528,7 @@ public class ConversationApplicationService {
     }
 
     /**
-     * 在Pipeline的权威completion后交接执行权，再将完整审批批次开放给客户端。
+     * 在Pipeline结果和实际退出均确认后交接执行权，再将完整审批批次开放给客户端。
      * 存储或交接失败时保留PREPARED，历史接口也不能提前展示这些卡片。
      */
     private Mono<List<MessageInfo>> finalizeRunResult(ChatMessageAggregate aggregate,
@@ -510,20 +536,16 @@ public class ConversationApplicationService {
         return Mono.fromCallable(() -> {
             String conversationId = aggregate.getConversationId();
             String pipelineRunId = result.pipelineRunId();
-            // 释放失败必须中止正式发布；doFinally仍会尝试幂等清理，但不能提前开放审批。
-            reactiveRunManager.release(aggregate.getTrace().getTaskId(), pipelineRunId);
-            if (!chatConversationDomainService.clearActiveRunIdIfMatch(conversationId, pipelineRunId)) {
-                ChatConversation current = chatConversationDomainService.findByUseIdAndConversationId(
-                        aggregate.getConversation().getUserId(), conversationId);
-                Assert.isTrue(current != null && StringUtils.isBlank(current.getActiveRunId()),
-                        () -> SystemIntervalException.of("会话执行权尚未交接，不能发布本批审批"));
-            }
+            // 调用方已等待实际退出及租约释放；这里完成数据库占用与审批状态交接。
             AgentRunResult master = result.masterAgentResult();
             if (master.getState() != AgentRunState.WAITING_APPROVAL) {
+                clearConversationExecution(aggregate, pipelineRunId);
                 return List.<MessageInfo>of();
             }
             HumanInTheLoopInfo first = master.getHumanInTheLoopInfos().getFirst();
             return transactionTemplate.execute(status -> {
+                // 执行权交接与审批就绪同事务提交，刷新不能看到“空闲但卡片尚未开放”的窗口。
+                clearConversationExecution(aggregate, pipelineRunId);
                 List<ChatMessageHitl> tickets = chatMessageHitlDomainService.findBatch(
                         conversationId, first.getPauseId(), first.getPauseVersion(), pipelineRunId);
                 Assert.isTrue(tickets.size() == master.getHumanInTheLoopInfos().size()
@@ -562,6 +584,23 @@ public class ConversationApplicationService {
         }
     }
 
+    /** 数据库占用尚未清理时保守拒绝，即使连接已关闭或 Redis 租约查询异常。 */
+    private void requireExecutionReleased(ChatConversation conversation) {
+        if (StringUtils.isNotBlank(conversation.getActiveRunId())) {
+            throw new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING);
+        }
+    }
+
+    /** 只清理本次运行的占用，清理未确认成功时不能向客户端宣告空闲。 */
+    private void clearConversationExecution(ChatMessageAggregate aggregate, String pipelineRunId) {
+        String conversationId = aggregate.getConversationId();
+        if (chatConversationDomainService.clearActiveRunIdIfMatch(conversationId, pipelineRunId)) return;
+        ChatConversation current = chatConversationDomainService.findByUseIdAndConversationId(
+                aggregate.getConversation().getUserId(), conversationId);
+        Assert.isTrue(current != null && StringUtils.isBlank(current.getActiveRunId()),
+                () -> SystemIntervalException.of("会话执行权尚未交接，不能发布结束状态"));
+    }
+
     @NotNull
     private static TaskState getTaskState(AgentRunState state) {
         return switch (state) {
@@ -583,8 +622,9 @@ public class ConversationApplicationService {
      */
     private void updateTraceActive(String conversationId, String traceRunId, String pipelineRunId) {
         transactionTemplate.execute(status -> {
+            Assert.isTrue(chatConversationDomainService.updateActiveRunId(conversationId, pipelineRunId),
+                    () -> new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING));
             Assert.isTrue(chatRequestTraceDomainService.updateState(traceRunId, TaskState.PROCESS), () -> SystemIntervalException.of("更新trace状态失败"));
-            Assert.isTrue(chatConversationDomainService.updateActiveRunId(conversationId, pipelineRunId), () -> SystemIntervalException.of("更新会话活跃Pipeline运行ID失败"));
             return null;
         });
     }
@@ -628,6 +668,7 @@ public class ConversationApplicationService {
             isNewConversation = false;
             conversation = chatConversationDomainService.findByUseIdAndConversationId(request.getUserId(), request.getConversationId());
             Assert.notNull(conversation, () -> BusinessRuntimeException.of(TripAgentResultCode.CONVERSATION_NOT_EXIST));
+            requireExecutionReleased(conversation);
             requireNoPendingApproval(conversation.getConversationId());
         }
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, PlanProgress, PlanStep, PlanTask, TimelineItem, TravelData } from '../types';
+import type { ConversationExecutionState, Message, PlanProgress, PlanStep, PlanTask, TimelineItem, TravelData } from '../types';
 
 export interface Conversation {
   id: string;
@@ -15,6 +15,8 @@ export interface Conversation {
   /** 当前轮次按时间顺序的思考/工具/计划/结果时间轴 */
   timeline: TimelineItem[];
   isThinking: boolean;
+  /** 服务端执行占用，不能用 SSE 是否结束代替。 */
+  executionState?: ConversationExecutionState;
   /** 断线或提交后须重新读取服务端状态，期间不能发送新任务或审批。 */
   approvalSyncRequired?: boolean;
   /** 本轮执行错误单独保存，历史刷新不应抹掉未落库的失败提示。 */
@@ -51,6 +53,7 @@ interface ChatState {
   upsertMessages: (id: string, messages: Message[]) => void;
   setApprovalSyncRequired: (id: string, required: boolean) => void;
   setRunError: (id: string, error?: string) => void;
+  setConversationExecution: (id: string, state: ConversationExecutionState) => void;
   markConversationLoaded: (id: string) => void;
 
   // Derived helpers
@@ -219,6 +222,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setRunError: (id, error) => set((state) => ({
     conversations: state.conversations.map(conversation => conversation.id === id
       ? { ...conversation, runError: error } : conversation),
+  })),
+
+  setConversationExecution: (id, executionState) => set((state) => ({
+    conversations: state.conversations.map(conversation => conversation.id === id
+      ? { ...conversation, executionState } : conversation),
   })),
 
   markConversationLoaded: (id) =>

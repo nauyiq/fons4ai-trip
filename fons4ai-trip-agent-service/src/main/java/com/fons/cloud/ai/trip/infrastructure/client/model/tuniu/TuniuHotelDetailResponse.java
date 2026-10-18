@@ -30,7 +30,7 @@ public record TuniuHotelDetailResponse(String displayHint, Long hotelId, String 
                            List<String> images, List<RatePlan> ratePlans) {
     }
 
-    /** 房型报价方案；rmbPrices为人民币房价，count为当前剩余库存。 */
+    /** 房型报价方案；rmbPrices仅声明人民币价格，未明确每晚或全程；count为当前剩余库存。 */
     public record RatePlan(String ratePlanName, String vendorRatePlanId, String rmbPrices,
                            String preBookParam, String mealText, String cancelDesc,
                            Integer count) {

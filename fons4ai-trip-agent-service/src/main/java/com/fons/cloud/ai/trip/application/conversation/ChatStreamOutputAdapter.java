@@ -59,6 +59,14 @@ public class ChatStreamOutputAdapter {
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
                               CandidateOwner owner,
                               Function<AgentExecutePipeline.PipelineResult, Mono<List<MessageInfo>>> beforeTerminal) {
+        return adapt(run, owner, beforeTerminal, run.termination());
+    }
+
+    /** 结果与执行退出分别确认；成功及取消都必须等执行权交接后才能发送 run_ended。 */
+    public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
+                              CandidateOwner owner,
+                              Function<AgentExecutePipeline.PipelineResult, Mono<List<MessageInfo>>> beforeTerminal,
+                              Mono<Void> executionReleased) {
         String conversationId = owner.conversationId();
         return Flux.defer(() -> Flux.just(conversationReadyEvent(conversationId, run.runId()))
                 .concatWith(run.events()
@@ -68,18 +76,22 @@ public class ChatStreamOutputAdapter {
                             log.warn("聊天过程事件通道异常，等待管道最终结果，pipelineRunId:{}", run.runId(), error);
                             return Flux.empty();
                         }))
-                .concatWith(run.completion()
-                        .flatMap(result -> {
+                .concatWith(run.completion().materialize()
+                        .flatMap(outcome -> executionReleased.then(Mono.defer(() -> {
+                            if (!outcome.hasValue()) {
+                                log.warn("聊天管道未形成最终结果，pipelineRunId:{}", run.runId(), outcome.getThrowable());
+                                return Mono.just(unresolvedEvent(run.runId(), run.state(), conversationId));
+                            }
                             if (run.state() != ReactiveTaskState.COMPLETED) {
                                 return Mono.error(SystemIntervalException.of("Pipeline尚未完成，不能发布正式审批"));
                             }
-                            return Mono.defer(() -> beforeTerminal.apply(result))
-                                    .map(messages -> completedEvent(result, conversationId, messages));
-                        })
-                        .onErrorResume(error -> {
-                            log.warn("聊天管道未形成最终结果，pipelineRunId:{}", run.runId(), error);
-                            return Mono.just(unresolvedEvent(run.runId(), run.state(), conversationId));
-                        })
+                            return Mono.defer(() -> beforeTerminal.apply(outcome.get()))
+                                    .map(messages -> completedEvent(outcome.get(), conversationId, messages))
+                                    .onErrorResume(error -> {
+                                        log.error("聊天结果发布失败，pipelineRunId:{}", run.runId(), error);
+                                        return Mono.just(unresolvedEvent(run.runId(), ReactiveTaskState.FAILED, conversationId));
+                                    });
+                        })))
                         .flatMapMany(terminalEvent -> pageReadyEvent(owner)
                                 .concatWith(Mono.just(terminalEvent))))
                 .doFinally(signal -> pageNotificationRegistry.discard(owner)));

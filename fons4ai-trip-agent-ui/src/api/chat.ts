@@ -1,6 +1,6 @@
 import { storedAuthHeaders } from './auth';
 import { getApiBase } from './config';
-import type { ApprovalReplayRequest, Message } from '../types';
+import type { ApprovalReplayRequest, ConversationExecutionState, Message } from '../types';
 
 /** 保留业务错误码，以区分未接受的参数错误和需要刷新状态的重复/冲突提交。 */
 export class TripApiError extends Error {
@@ -174,6 +174,21 @@ export async function interruptAgent(sessionId: string): Promise<boolean> {
 
   await readTripResponse<void>(res);
   return true;
+}
+
+/** 刷新、断流及取消之后重新核对执行权；只读，不会启动或重放任务。 */
+export async function fetchConversationExecution(conversationId: string, signal?: AbortSignal): Promise<{
+  conversationId: string; pipelineRunId: string | null; state: ConversationExecutionState;
+}> {
+  const response = await fetch(`${getApiBase()}/api/conversation/${encodeURIComponent(conversationId)}/execution`, {
+    headers: authHeaders(), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
+  });
+  const result = await readTripResponse<{
+    conversationId: string; pipelineRunId: string | null; state: ConversationExecutionState;
+  }>(response);
+  if (result.conversationId !== conversationId || !['IDLE', 'RUNNING', 'STOPPING', 'UNKNOWN'].includes(result.state))
+    throw new TripApiError('无法确认会话执行状态');
+  return result;
 }
 
 export interface RemoteConversation {

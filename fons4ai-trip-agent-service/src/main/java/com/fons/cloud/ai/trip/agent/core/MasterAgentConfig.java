@@ -6,6 +6,7 @@ import com.fons.cloud.ai.agent.core.AgentScopeHarnessAgent;
 import com.fons.cloud.ai.agent.core.AgentTaskManager;
 import com.fons.cloud.ai.agent.infrastructure.middleware.ActiveAgentPersistenceMiddleware;
 import com.fons.cloud.ai.agent.infrastructure.middleware.AgentScopeApprovalRejectMiddleware;
+import com.fons.cloud.ai.agent.infrastructure.middleware.AgentScopeExecutionLifecycleMiddleware;
 import com.fons.cloud.ai.agent.infrastructure.middleware.FonsAgentTraceMiddleware;
 import com.fons.cloud.ai.trip.agent.mcp.WeatherMcp;
 import com.fons.cloud.ai.trip.infrastructure.middleware.AgentScopeDelegationMiddleware;
@@ -228,6 +229,7 @@ public class MasterAgentConfig {
      */
     private HarnessAgent.Builder childBuilder(Toolkit toolkit) {
         HarnessAgent.Builder builder = commonBuilder().toolkit(toolkit)
+                .middleware(AgentScopeExecutionLifecycleMiddleware.getInstance())
                 .middleware(AgentScopeApprovalRejectMiddleware.getInstance());
         var askTools = properties.getApprovalRequiredTools().stream()
                 .filter(name -> toolkit.getTool(name) != null)

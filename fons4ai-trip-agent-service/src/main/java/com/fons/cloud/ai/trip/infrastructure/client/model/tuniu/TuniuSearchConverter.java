@@ -164,8 +164,8 @@ public final class TuniuSearchConverter {
     }
 
     /**
-     * 将酒店详情中的“房型 × 报价方案”拆成可计算候选。
-     * 详情接口在一间房条件下返回具体报价，按单间每晚口径接入；列表最低价仍保持起价候选。
+     * 将酒店详情中的“房型 × 报价方案”拆成独立候选。
+     * 供应商只声明rmbPrices为人民币价格，未说明每晚或全程；保留未知计价口径，不能直接计算住宿总价。
      * 短期preBookParam不写入候选，实际预订前必须重新查询详情并验价。
      */
     public ItinerarySearchResult<HotelCandidate> convertHotelRooms(TuniuHotelDetailResponse response,
@@ -174,6 +174,7 @@ public final class TuniuSearchConverter {
                                                                     SearchPagination pagination) {
         List<HotelCandidate> candidates = new ArrayList<>();
         Set<String> warnings = new LinkedHashSet<>();
+        warnings.add("供应商未明确房型报价是每晚还是全程，金额仅供展示；确认计价口径前不能乘入住晚数或用于住宿总价计算");
         int discarded = 0;
         int originalCount = 0;
         int nights = Math.toIntExact(ChronoUnit.DAYS.between(request.checkInDate(), request.checkOutDate()));
@@ -239,7 +240,7 @@ public final class TuniuSearchConverter {
                         text(ratePlan.ratePlanName()), text(room.bedType()), room.maxOccupancy(),
                         roomArea(room.roomSize()), null, text(room.floor()), request.checkInDate(),
                         request.checkOutDate(), nights, adultCount, childAges.size(),
-                        new CandidatePrice(price, DOMESTIC_CURRENCY, SearchPriceBasis.PER_ROOM_PER_NIGHT,
+                        new CandidatePrice(price, DOMESTIC_CURRENCY, SearchPriceBasis.UNKNOWN,
                                 null, null, false),
                         null, null, null, breakfast(ratePlan.mealText()), text(ratePlan.mealText()),
                         cancelPolicy, remainingRooms));

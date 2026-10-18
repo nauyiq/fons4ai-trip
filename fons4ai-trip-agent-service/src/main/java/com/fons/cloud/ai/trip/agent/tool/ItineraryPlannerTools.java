@@ -19,6 +19,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult.ProposalSummary;
+import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -84,7 +85,7 @@ public class ItineraryPlannerTools implements BaseTool {
             @ToolParam(name = "weather_summary", description = "已查询到的出发地和目的地天气摘要，用于体验评分；无真实天气数据时留空", required = false) String weatherSummary,
             @ToolParam(name = "excluded_candidate_ids", description = "需要明确排除的交通或酒店候选ID列表；不排除时不传或传空列表", required = false) List<String> excludedCandidateIds) {
         String userId = context == null ? null : context.getUserId();
-        String conversationId = context == null ? null : context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         String normalizedUserId = requiredRuntimeValue(userId, "user_id");
         String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
         log.info("[TOOL][plan_itinerary] userId={}, conversationId={}, origin={}, destination={}, "
@@ -162,7 +163,7 @@ public class ItineraryPlannerTools implements BaseTool {
             RuntimeContext context,
             @ToolParam(name = "plan_id", description = "plan_itinerary成功返回的真实planId") String planId) {
         String userId = context == null ? null : context.getUserId();
-        String conversationId = context == null ? null : context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         String normalizedUserId = requiredRuntimeValue(userId, "user_id");
         String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
         String normalizedPlanId = StringUtils.trimToNull(planId);
@@ -205,7 +206,7 @@ public class ItineraryPlannerTools implements BaseTool {
             RuntimeContext context,
             @ToolParam(name = "plan_id", description = "plan_itinerary成功返回且review_itinerary_plan已审核的真实planId") String planId) {
         String userId = context == null ? null : context.getUserId();
-        String conversationId = context == null ? null : context.getSessionId();
+        String conversationId = TripRuntimeContext.conversationId(context);
         String normalizedUserId = requiredRuntimeValue(userId, "user_id");
         String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
         String normalizedPlanId = StringUtils.trimToNull(planId);

@@ -209,3 +209,6 @@ export interface PlanHtmlData {
   html: string;
   title?: string;
 }
+
+/** 执行占用独立于业务结果；UNKNOWN 时保守禁止提交新任务。 */
+export type ConversationExecutionState = 'IDLE' | 'RUNNING' | 'STOPPING' | 'UNKNOWN';

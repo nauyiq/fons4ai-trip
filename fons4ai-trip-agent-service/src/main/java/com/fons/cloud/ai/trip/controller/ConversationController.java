@@ -10,6 +10,7 @@ import com.fons.cloud.ai.trip.common.request.ConversationStreamRequest;
 import com.fons.cloud.ai.trip.common.request.PageMessageRequest;
 import com.fons.cloud.ai.trip.common.vo.ConversationInfo;
 import com.fons.cloud.ai.trip.common.vo.MessageInfo;
+import com.fons.cloud.ai.trip.common.vo.ConversationExecutionInfo;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.PageResult;
@@ -69,6 +70,14 @@ public class ConversationController {
             return R.failed(TripAgentResultCode.LOGIN_EXPIRED);
         }
         return conversationApplicationService.interrupt(new ConversationInterruptRequest(userId, conversationId));
+    }
+
+    /** 刷新或断流后读取当前用户会话的执行占用，不依赖浏览器本地状态。 */
+    @GetMapping("/{conversationId}/execution")
+    public R<ConversationExecutionInfo> execution(@PathVariable String conversationId) {
+        String userId = saTokenAuthTemplate.getCurrentLoginIdAsString();
+        if (StringUtils.isBlank(userId)) return R.failed(TripAgentResultCode.LOGIN_EXPIRED);
+        return conversationApplicationService.execution(userId, conversationId);
     }
 
     /**

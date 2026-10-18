@@ -5,6 +5,7 @@ import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.response.ItineraryCandidatesResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
+import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -124,7 +125,7 @@ public class ItineraryPlanReadTools implements BaseTool {
 
     private CandidateOwner candidateOwner(RuntimeContext context) {
         String userId = context == null ? null : StringUtils.trimToNull(context.getUserId());
-        String conversationId = context == null ? null : StringUtils.trimToNull(context.getSessionId());
+        String conversationId = StringUtils.trimToNull(TripRuntimeContext.conversationId(context));
         if (userId == null) {
             throw parameterError("运行时上下文缺少user_id");
         }

@@ -33,8 +33,10 @@ public class ChatConversationDomainServiceImpl extends ServiceImpl<ChatConversat
 
     @Override
     public boolean updateActiveRunId(String conversationId, String pipelineRunId) {
+        // Redis互斥用于运行调度，数据库条件更新仍需独立阻止覆盖遗留占用。
         return update(Wrappers.lambdaUpdate(ChatConversation.class)
                 .eq(ChatConversation::getConversationId, conversationId)
+                .isNull(ChatConversation::getActiveRunId)
                 .set(ChatConversation::getActiveRunId, pipelineRunId));
     }
 
