@@ -101,7 +101,7 @@ function getPreview(text: string): string {
   return lines[lines.length - 1] ?? '';
 }
 
-function ThinkingBlock({
+export function ThinkingBlock({
   agentName,
   text,
   active = false,
@@ -134,7 +134,7 @@ function ThinkingBlock({
             />
           </svg>
         </span>
-        <span className="timeline-thinking-label">深度思考</span>
+        <span className="timeline-thinking-label">{['queryRewriteAgent', 'intentRecognitionAgent'].includes(agentName) ? '分析过程' : '模型思考'}</span>
         <span className="timeline-thinking-agent">· {agentDisplayName(agentName)}</span>
         <span className="timeline-thinking-preview">{preview || '思考中...'}</span>
         <span className={`timeline-thinking-chevron${expanded ? '' : ' collapsed'}`}>›</span>

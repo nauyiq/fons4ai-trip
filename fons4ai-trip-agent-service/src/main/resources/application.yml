@@ -80,11 +80,11 @@ sys:
       secret-key: ${OSS_SECRET_KEY}
 
 trip:
-#  agent:
-#    master:
-#      approval-required-tools:
-#        - query_travel_orders
-#        - query_travel_policy
+  agent:
+    master:
+      approval-required-tools:
+        - query_travel_orders
+        - query_travel_policy
   visa:
     orizn:
       # 企业服务级凭据，不向用户或模型索取。

@@ -10,6 +10,9 @@ import com.fons.cloud.ai.trip.common.vo.MessageInfo;
 import com.fons.cloud.ai.trip.domain.entity.ChatConversation;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessage;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessageHitl;
+import com.fons.cloud.ai.trip.domain.entity.ChatRequestTrace;
+import com.fons.cloud.ai.trip.domain.service.ChatRequestTraceDomainService;
+import com.fons.cloud.ai.trip.common.vo.RequestTraceInfo;
 import com.fons.cloud.ai.trip.domain.service.ChatConversationDomainService;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageHitlDomainService;
@@ -39,6 +42,7 @@ public class ConversationReadApplicationService {
     private final ChatConversationDomainService chatConversationDomainService;
     private final ChatMessageDomainService chatMessageDomainService;
     private final ChatMessageHitlDomainService chatMessageHitlDomainService;
+    private final ChatRequestTraceDomainService chatRequestTraceDomainService;
 
     /**
      * 获取用户会话列表
@@ -74,6 +78,13 @@ public class ConversationReadApplicationService {
         }
 
         List<ChatMessage> records = page.getRecords();
+        List<String> runIds = records.stream().map(ChatMessage::getRunId).filter(StringUtils::isNotBlank).distinct().toList();
+        // 会话归属已校验，再按本页 Run 批量关联，避免每条消息一次查询或跨会话读取。
+        Map<String, RequestTraceInfo> traces = runIds.isEmpty() ? Map.of()
+                : chatRequestTraceDomainService.lambdaQuery()
+                        .eq(ChatRequestTrace::getConversationId, request.conversationId())
+                        .in(ChatRequestTrace::getRunId, runIds).list().stream()
+                        .collect(Collectors.toMap(ChatRequestTrace::getRunId, RequestTraceInfo::from));
         List<ChatMessageHitl> hitlList = records.stream().anyMatch(e -> e.getRole() == ChatRole.AGENT_HITL)
                 ? chatMessageHitlDomainService.listByIds(records.stream().filter(e -> e.getRole() == ChatRole.AGENT_HITL).map(ChatMessage::getMessageId).toList())
                 : List.of();
@@ -82,13 +93,15 @@ public class ConversationReadApplicationService {
         PageResult<MessageInfo> pageResult = PageWrappers.buildResult(page, (chatMessage) -> {
             MessageInfo.MessageInfoBuilder builder = MessageInfo.builder()
                     .id(chatMessage.getMessageId())
+                    .runId(chatMessage.getRunId())
+                    .requestTrace(traces.get(chatMessage.getRunId()))
                     .role(chatMessage.getRole().getCode())
                     .content(chatMessage.getContent())
                     .agentName(chatMessage.getAgentName())
                     .created(chatMessage.getCreated() == null ? null : chatMessage.getCreated().getTime())
                     .thinking(chatMessage.getThinking())
                     .messageContentType(chatMessage.getType().name())
-                    .extra(StringUtils.isBlank(chatMessage.getExtra()) ? null : JSON.parseObject(chatMessage.getExtra()))
+                    .extra(readMessageExtra(chatMessage))
                     .feedback(chatMessage.getFeedback())
                     .feedbackAt(chatMessage.getFeedbackAt() == null ? null : chatMessage.getFeedbackAt().getTime());
 
@@ -109,6 +122,18 @@ public class ConversationReadApplicationService {
         });
         return R.ok(pageResult);
 
+    }
+
+    /** 非权威展示元数据损坏不能阻断整页历史；审批票证仍走独立的可信校验路径。 */
+    private Map<String, Object> readMessageExtra(ChatMessage message) {
+        if (StringUtils.isBlank(message.getExtra())) {
+            return null;
+        }
+        try { return JSON.parseObject(message.getExtra()); }
+        catch (RuntimeException error) {
+            log.warn("消息扩展内容无法解析，忽略展示元数据，messageId:{}", message.getMessageId());
+            return null;
+        }
     }
 
 }

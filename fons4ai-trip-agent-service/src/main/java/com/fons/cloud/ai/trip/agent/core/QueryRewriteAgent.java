@@ -54,6 +54,7 @@ public class QueryRewriteAgent extends AgentBase {
                         .name(TripAgent.QUERY_REWRITE_AGENT.getAgentName())
                         .role(MsgRole.ASSISTANT)
                         .content(TextBlock.builder().text(ExtractUtils.extractText(responses)).build())
+                        .metadata(ExtractUtils.usageMetadata(responses, getName(), model.getModelName()))
                         .build());
     }
 

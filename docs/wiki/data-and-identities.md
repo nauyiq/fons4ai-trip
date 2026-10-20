@@ -51,6 +51,8 @@ flowchart TB
 
 ## 条件更新与数据清理
 
+请求级摘要以 `chat_request_trace.run_id` 归属，不随审批恢复累计旧分段：恢复创建新 Run，用 `execution_summary.originRunId` 关联原请求。`execution_summary` 可空 JSON 列已由用户手动迁移并通过 MCP 核验；旧记录不回填。历史 API 先校验会话归属，再按本页 Run 批量关联，损坏/未知版本摘要按未知处理。当前工作树实现与尚待验收项见 [任务规划](../development/features/20261019-request-summary/任务规划.md)。
+
 `active_run_id` 保存 Pipeline Run ID。占用只允许原值为空，释放只允许原值仍匹配当前 Run；删除会话也使用空闲条件。Redis 缺失或不可读时，数据库占用不能被直接清掉。
 
 业务聊天删除与 SDK 状态、候选 Redis、OSS、Trace 的清理没有天然等价关系。新增清理能力应先确定用户可见删除、恢复需求与实际资源所有者，不能假定一条业务 `DELETE` 会级联清除全部外部数据。

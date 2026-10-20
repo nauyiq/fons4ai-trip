@@ -5,6 +5,9 @@ import com.fons.cloud.ai.agent.model.request.AgentInputContent;
 import com.fons.cloud.ai.agent.model.request.AgentInputContentType;
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
+import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
+import com.fons.cloud.ai.agent.api.AgentRun;
+import java.util.ArrayList;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import lombok.Getter;
@@ -49,6 +52,42 @@ public final class AgentPipelineExecuteContext {
      * <p>该结果可能表示正常完成、审批等待、拒绝、取消或失败，由Pipeline最终结果继续向上返回。</p>
      */
     private volatile AgentRunResult masterAgentResult;
+
+    /** 当前请求两个分析步骤的用量，跳过/缓存命中保持 null，不复制缓存里的历史消耗。 */
+    private volatile AgentExecutionSummary.ModelCall queryRewriteUsage;
+    private volatile AgentExecutionSummary.ModelCall intentRecognitionUsage;
+
+    /** 现有 Master 句柄，实际退出后读取最终摘要，覆盖取消时 relay 未返回结果的路径。 */
+    private volatile AgentRun masterRun;
+
+    public void queryRewriteUsage(AgentExecutionSummary.ModelCall usage) {
+        this.queryRewriteUsage = preserveCallId(queryRewriteUsage, usage);
+    }
+    public void intentRecognitionUsage(AgentExecutionSummary.ModelCall usage) {
+        this.intentRecognitionUsage = preserveCallId(intentRecognitionUsage, usage);
+    }
+    public void masterRun(AgentRun run) { this.masterRun = run; }
+
+    /** 开始标记和最终返回属于同一次分析调用，更新用量时保留最初的调用身份。 */
+    private AgentExecutionSummary.ModelCall preserveCallId(AgentExecutionSummary.ModelCall previous,
+                                                          AgentExecutionSummary.ModelCall current) {
+        if (previous == null || current == null) return current;
+        return new AgentExecutionSummary.ModelCall(previous.callId(), current.agentName(), current.modelName(),
+                current.inputTokens(), current.outputTokens(), current.cachedTokens(), current.completed());
+    }
+
+    /** 汇总现有步骤结果；不监听事件或重新执行模型。 */
+    public AgentExecutionSummary executionSummary() {
+        List<AgentExecutionSummary.ModelCall> calls = new ArrayList<>();
+        if (queryRewriteUsage != null) calls.add(queryRewriteUsage);
+        if (intentRecognitionUsage != null) calls.add(intentRecognitionUsage);
+        AgentExecutionSummary master = masterRun == null ? null : masterRun.executionSummary();
+        if (master == null && masterAgentResult != null) master = masterAgentResult.getExecutionSummary();
+        if (master != null) calls.addAll(master.modelCalls());
+        // 未支持统计是覆盖缺失，不是一次真实模型调用；保留已知分析小计并降低完整性。
+        boolean masterUsageComplete = master == null ? masterRun == null : master.usageComplete();
+        return new AgentExecutionSummary(calls, master == null ? List.of() : master.toolCalls(), masterUsageComplete);
+    }
 
 
     private AgentPipelineExecuteContext(AgentRequest userInput) {

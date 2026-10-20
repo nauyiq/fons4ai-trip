@@ -56,6 +56,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
             }
 
             log.info("开始执行MasterAgent，pipelineRunId:{}, agentRunId:{}", scope.runId(), masterRun.runId());
+            context.masterRun(masterRun);
 
             /*
              * relay负责订阅并转发MasterAgent事件、等待权威AgentRunResult，

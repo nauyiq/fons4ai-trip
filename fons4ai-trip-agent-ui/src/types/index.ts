@@ -48,6 +48,9 @@ export interface ApprovalReplayRequest {
 
 export interface Message extends ApprovalMetadata {
   id: string;
+  /** 服务端业务请求身份，用于将一次请求的分析/执行摘要只展示一次。 */
+  runId?: string;
+  requestTrace?: RequestTraceInfo;
   role: 'user' | 'user_resume' | 'agent' | 'agent_hitl' | 'system';
   content: string;
   agentName?: string;
@@ -68,6 +71,24 @@ export interface Message extends ApprovalMetadata {
   feedback?: 'LIKE' | 'DISLIKE' | null;
   /** 反馈时间戳（毫秒） */
   feedbackAt?: number;
+}
+
+/** 请求轨迹的历史投影；旧记录可能缺少 executionSummary 和用量。 */
+export interface RequestTraceInfo {
+  runId: string;
+  state?: string;
+  usedToken?: number | null;
+  usedTools?: string[];
+  analysis?: {
+    queryRewrite?: string;
+    intentRecognition?: { overallReason?: string; primary?: string };
+  };
+  executionSummary?: {
+    version: number;
+    originRunId?: string;
+    usageComplete?: boolean;
+    toolCalls?: Array<{ callId: string; agentName?: string; toolName: string; status: string; executed: boolean; provider?: string }>;
+  };
 }
 
 export interface PlanProgress {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { useChatStore, isPersistedMessageId } from '../store/chatStore';
@@ -6,7 +6,8 @@ import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { logout } from '../api/auth';
 import { fetchConversationExecution, sendChatMessageSSE, sendApprovalReplaySSE, interruptAgent, fetchConversations, fetchMessages, mapTripMessage, updateMessageFeedback, fetchDebugAgents, sendDebugAgentMessageSSE, type DebugAgentInfo, type RemoteMessage, type TripHistoryMessage } from '../api/chat';
-import AgentMessageBlock from './AgentMessageBlock';
+import AgentMessageBlock, { ThinkingBlock } from './AgentMessageBlock';
+import RequestSummary from './RequestSummary';
 import ApprovalBatchCard from './ApprovalBatchCard';
 import UserInteractionCard from './UserInteractionCard';
 import type { Message, PlanTask, UserInteraction, TravelData, BookingResult, PlanHtmlData, ApprovalReplayRequest } from '../types';
@@ -20,8 +21,16 @@ function historyMessage(message: RemoteMessage): Message {
     thinkingByAgent: message.extra?.thinkingByAgent,
     planTasks: message.extra?.planTasks,
     travelData: message.extra?.travelData,
-    timeline: message.thinking ? [{ kind: 'thinking', agentName: message.agentName || 'masterAgent', text: message.thinking }] : message.extra?.timeline,
+    timeline: Array.isArray(message.extra?.timeline) ? message.extra.timeline : (message.thinking
+      ? [{ kind: 'thinking', agentName: typeof message.extra?.thinkingAgentName === 'string'
+        ? message.extra.thinkingAgentName : message.agentName || 'masterAgent', text: message.thinking }] : undefined),
   };
+}
+
+/** 只核销同一次 Pipeline 的取消提示，历史记录不能掩盖新请求的错误。 */
+function isRunCancellation(message: Pick<RemoteMessage, 'role' | 'extra'>, pipelineRunId?: string): boolean {
+  return !!pipelineRunId && message.role === 'system' && message.extra?.runState === 'cancelled'
+    && message.extra?.pipelineRunId === pipelineRunId;
 }
 
 // ── Message bubble components ─────────────────────────────────────────────
@@ -144,6 +153,8 @@ export default function ChatWindow() {
   /** 保证网络请求尚未返回时也能挡住第二次点击。 */
   const streamLock = useRef(false);
   const streamConversation = useRef('');
+  /** 本次 SSE 的物理执行身份，用于把结束事件与刷新后的持久化结果对应起来。 */
+  const streamPipelineRunId = useRef('');
   // 【调试后门】直连的目标子智能体，空字符串表示走默认智能调度（MasterAgent）
   const [debugAgent, setDebugAgent] = useState('');
   const [debugAgents, setDebugAgents] = useState<DebugAgentInfo[]>([]);
@@ -240,6 +251,10 @@ export default function ChatWindow() {
           const rows = await fetchMessages(currentConversationId, controller.signal);
           if (!cancelled) {
             loadConversationMessages(currentConversationId, rows.map(historyMessage));
+            if (streamConversation.current === currentConversationId
+                && rows.some(row => isRunCancellation(row, streamPipelineRunId.current))) {
+              setRunError(currentConversationId);
+            }
             setApprovalSyncRequired(currentConversationId, false);
           }
         }
@@ -329,6 +344,10 @@ export default function ChatWindow() {
       const rows = await fetchMessages(conversationId);
       const canonical = rows.map(historyMessage);
       loadConversationMessages(conversationId, canonical);
+      if (streamConversation.current === conversationId
+          && rows.some(row => isRunCancellation(row, streamPipelineRunId.current))) {
+        setRunError(conversationId);
+      }
       // 历史已替代本轮临时消息，避免停止思考时再把旧进度快照到审批卡片之后。
       if (useChatStore.getState().currentConversationId === conversationId) clearProgress();
       setApprovalSyncRequired(conversationId, false);
@@ -346,17 +365,19 @@ export default function ChatWindow() {
     if (streamConversation.current && useChatStore.getState().currentConversationId !== streamConversation.current) return;
     switch (event) {
       case 'conversation_ready': {
-        const { conversationId } = JSON.parse(data) as { conversationId?: string };
+        const { conversationId, pipelineRunId } = JSON.parse(data) as { conversationId?: string; pipelineRunId?: string };
         if (conversationId) {
           bindRemoteConversation(streamConversation.current || currentConversationId, conversationId);
           streamConversation.current = conversationId;
+          streamPipelineRunId.current = pipelineRunId || '';
         }
         break;
       }
       case 'run_ended': {
         const result = JSON.parse(data) as {
-          conversationId?: string; state?: string; errorMessage?: string; nextAction?: string;
+          conversationId?: string; pipelineRunId?: string; state?: string; errorMessage?: string; nextAction?: string;
           pauseId?: string; pauseVersion?: number; approvalReady?: boolean; approvalMessages?: TripHistoryMessage[];
+          terminalMessages?: TripHistoryMessage[];
           humanInTheLoopInfos?: Array<{ kind: string; question?: string; data?: Partial<UserInteraction> }>;
         };
         const conversationId = streamConversation.current || currentConversationId;
@@ -379,8 +400,17 @@ export default function ChatWindow() {
           if (info?.question) setInteraction({ ...info.data, toolUseId: '', question: info.question, ui_type: info.data?.ui_type || 'text' });
         }
         if (result.state && result.state !== 'completed' && result.state !== 'waiting_approval') {
-          const existing = useChatStore.getState().conversations.find(item => item.id === conversationId)?.runError;
-          setRunError(conversationId, result.errorMessage || existing || `聊天执行${result.state === 'cancelled' ? '已取消' : '失败'}`);
+          const cancelledMessages = result.state === 'cancelled' && Array.isArray(result.terminalMessages)
+            ? result.terminalMessages.filter(message => typeof message.id === 'string' && message.id.length > 0
+              && isRunCancellation(message, result.pipelineRunId)) : [];
+          if (cancelledMessages.length > 0) {
+            // 与历史共用真实消息 ID；重复事件或刷新不再追加一条临时的取消消息。
+            upsertMessages(conversationId, cancelledMessages.map(message => historyMessage(mapTripMessage(message))));
+            setRunError(conversationId);
+          } else {
+            const existing = useChatStore.getState().conversations.find(item => item.id === conversationId)?.runError;
+            setRunError(conversationId, result.errorMessage || existing || `聊天执行${result.state === 'cancelled' ? '已取消' : '失败'}`);
+          }
         }
         break;
       }
@@ -575,6 +605,7 @@ export default function ChatWindow() {
       throw new Error('会话或账号已切换，请重新打开审批');
     streamLock.current = true;
     streamConversation.current = request.conversationId;
+    streamPipelineRunId.current = '';
     try {
       // 提交前读取全部页面，不能以局部历史或过期卡片拼出不完整批次。
       const fresh = await refreshHistory(request.conversationId);
@@ -657,6 +688,7 @@ export default function ChatWindow() {
     if (!content.trim()) return;
     streamLock.current = true;
     streamConversation.current = currentConversationId;
+    streamPipelineRunId.current = '';
 
     // 先把上一轮进度快照到上一条 agent 消息、清空 store，再追加本轮 user 消息。
     // 顺序不能反：若在追加 user 消息后再 snapshot，此时 messages 末尾是 user，
@@ -815,29 +847,38 @@ export default function ChatWindow() {
           }}>刷新状态</button>}
         </div>}
         {messages.map((msg, idx) => {
-          if (msg.role === 'user' || msg.role === 'user_resume') return <UserBubble key={msg.id} msg={msg} username={username} />;
+          // 一个请求可以包含正文、媒体或多张审批卡，摘要只挂在本页第一次出现的位置。
+          const summary = msg.runId && !messages.slice(0, idx).some(previous => previous.runId === msg.runId)
+            ? <RequestSummary trace={msg.requestTrace} /> : null;
+          if (msg.role === 'user' || msg.role === 'user_resume') return <Fragment key={msg.id}>
+            <UserBubble msg={msg} username={username} />{summary}</Fragment>;
           if (msg.role === 'agent_hitl') {
             const batch = approvalBatches.find(item => item.messages.some(card => card.id === msg.id));
             if (!batch || batch.messages[0].id !== msg.id) return null;
-            return <ApprovalBatchCard key={`${currentConversationId}:${batch.key}`} userId={userId ?? ''}
+            // 审批正文属于子 Agent，Master 思考是独立来源；整批卡片上方只渲染一份。
+            const thinking = batch.messages.flatMap(card => card.timeline ?? []).find(item => item.kind === 'thinking');
+            return <Fragment key={`${currentConversationId}:${batch.key}`}>{summary}
+              {thinking?.kind === 'thinking' && <div className="approval-thinking">
+                <ThinkingBlock agentName={thinking.agentName} text={thinking.text} />
+              </div>}
+              <ApprovalBatchCard userId={userId ?? ''}
               conversationId={currentConversationId} batch={batch} busy={isThinking || executionBlocked || refreshing}
               syncRequired={!!currentConv?.approvalSyncRequired} onSubmit={submitApproval}
-              onRefresh={async () => { await refreshHistory(currentConversationId); }} />;
+              onRefresh={async () => { await refreshHistory(currentConversationId); }} /></Fragment>;
           }
           if (msg.role === 'agent') {
             const isLast = idx === messages.length - 1;
             const streaming = isLast && lastAgentIsStreaming;
             return (
-              <AgentMessageBlock
-                key={msg.id}
+              <Fragment key={msg.id}>{summary}<AgentMessageBlock
                 msg={msg}
                 liveTimeline={streaming ? timeline : undefined}
                 isStreaming={streaming}
                 onFeedback={handleFeedback}
-              />
+              /></Fragment>
             );
           }
-          return <SystemBubble key={msg.id} msg={msg} />;
+          return <Fragment key={msg.id}>{summary}<SystemBubble msg={msg} /></Fragment>;
         })}
 
         {/* 处理中但还没有 agent 消息时，先用占位消息展示时间轴 */}

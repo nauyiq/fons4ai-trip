@@ -21,7 +21,6 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.function.Function;
 
 /**
  * 将一次管道Run的过程事件和权威收口结果适配为应用层聊天流。
@@ -34,7 +33,8 @@ import java.util.function.Function;
  * <p>终态事件的data包含conversationId、pipelineRunId、可用时的agentRunId、state和nextAction。
  * nextAction取值为none、input_required或approval；INPUT_REQUIRED对应的state仍为completed，
  * 信息补充放在humanInTheLoopInfos中，不表示审批暂停；审批暂停使用已持久化的
- * approvalMessages，并携带同批pauseId、pauseVersion及approvalReady。</p>
+ * approvalMessages，并携带同批pauseId、pauseVersion及approvalReady；取消提示使用
+ * terminalMessages，与历史消息复用同一条持久化记录。</p>
  *
  * <p>state描述本轮Agent执行状态，不代表所有业务目标均已成功、审核通过或预订完成。
  * 任务清单是过程记录，不能用清单全部completed替代候选、方案及审核的实际业务结果。</p>
@@ -49,24 +49,16 @@ public class ChatStreamOutputAdapter {
 
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
                               CandidateOwner owner) {
-        return adapt(run, owner, ignored -> Mono.just(List.of()));
+        return adapt(run, owner, run.termination().thenReturn(List.of()));
     }
 
     /**
-     * completion确认Pipeline已收口，beforeTerminal负责交接租约并返回已持久化的正式审批消息。
-     * 交接失败只输出失败终态，不向客户端开放尚未就绪的审批。
+     * 结果与实际退出分别确认；finalizedMessages 完成执行权交接后，返回持久化的审批或取消消息。
+     * 正常、失败和取消路径共用这一个收尾入口；交接失败时不能宣告空闲或开放审批。
      */
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
                               CandidateOwner owner,
-                              Function<AgentExecutePipeline.PipelineResult, Mono<List<MessageInfo>>> beforeTerminal) {
-        return adapt(run, owner, beforeTerminal, run.termination());
-    }
-
-    /** 结果与执行退出分别确认；成功及取消都必须等执行权交接后才能发送 run_ended。 */
-    public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
-                              CandidateOwner owner,
-                              Function<AgentExecutePipeline.PipelineResult, Mono<List<MessageInfo>>> beforeTerminal,
-                              Mono<Void> executionReleased) {
+                              Mono<List<MessageInfo>> finalizedMessages) {
         String conversationId = owner.conversationId();
         return Flux.defer(() -> Flux.just(conversationReadyEvent(conversationId, run.runId()))
                 .concatWith(run.events()
@@ -77,20 +69,18 @@ public class ChatStreamOutputAdapter {
                             return Flux.empty();
                         }))
                 .concatWith(run.completion().materialize()
-                        .flatMap(outcome -> executionReleased.then(Mono.defer(() -> {
+                        .flatMap(outcome -> finalizedMessages.flatMap(messages -> Mono.fromCallable(() -> {
                             if (!outcome.hasValue()) {
                                 log.warn("聊天管道未形成最终结果，pipelineRunId:{}", run.runId(), outcome.getThrowable());
-                                return Mono.just(unresolvedEvent(run.runId(), run.state(), conversationId));
+                                return unresolvedEvent(run.runId(), run.state(), conversationId, messages);
                             }
                             if (run.state() != ReactiveTaskState.COMPLETED) {
-                                return Mono.error(SystemIntervalException.of("Pipeline尚未完成，不能发布正式审批"));
+                                throw SystemIntervalException.of("Pipeline尚未完成，不能发布正式审批");
                             }
-                            return Mono.defer(() -> beforeTerminal.apply(outcome.get()))
-                                    .map(messages -> completedEvent(outcome.get(), conversationId, messages))
-                                    .onErrorResume(error -> {
-                                        log.error("聊天结果发布失败，pipelineRunId:{}", run.runId(), error);
-                                        return Mono.just(unresolvedEvent(run.runId(), ReactiveTaskState.FAILED, conversationId));
-                                    });
+                            return completedEvent(outcome.get(), conversationId, messages);
+                        }).onErrorResume(error -> {
+                            log.error("聊天结果发布失败，pipelineRunId:{}", run.runId(), error);
+                            return Mono.just(unresolvedEvent(run.runId(), ReactiveTaskState.FAILED, conversationId, List.of()));
                         })))
                         .flatMapMany(terminalEvent -> pageReadyEvent(owner)
                                 .concatWith(Mono.just(terminalEvent))))
@@ -127,7 +117,7 @@ public class ChatStreamOutputAdapter {
     }
 
     private String completedEvent(AgentExecutePipeline.PipelineResult result, String conversationId,
-                                  List<MessageInfo> approvalMessages) {
+                                  List<MessageInfo> finalizedMessages) {
         AgentRunResult master = result.masterAgentResult();
         List<HumanInTheLoopInfo> interactions = master.getHumanInTheLoopInfos();
         JSONObject data = new JSONObject();
@@ -137,18 +127,21 @@ public class ChatStreamOutputAdapter {
         data.put("state", master.getState().name().toLowerCase(Locale.ROOT));
         data.put("nextAction", nextAction(master.getState(), interactions));
         if (master.getState() == AgentRunState.WAITING_APPROVAL) {
-            if (approvalMessages.size() != interactions.size() || approvalMessages.isEmpty()
-                    || approvalMessages.stream().anyMatch(message -> !ChatMessageHitlStatus.PENDING.getCode()
+            if (finalizedMessages.size() != interactions.size() || finalizedMessages.isEmpty()
+                    || finalizedMessages.stream().anyMatch(message -> !ChatMessageHitlStatus.PENDING.getCode()
                     .equals(message.getHitlStatus()))) {
                 throw SystemIntervalException.of("未取得完整且就绪的持久化审批消息");
             }
-            MessageInfo first = approvalMessages.getFirst();
+            MessageInfo first = finalizedMessages.getFirst();
             data.put("pauseId", first.getPauseId());
             data.put("pauseVersion", first.getPauseVersion());
             data.put("approvalReady", true);
-            data.put("approvalMessages", approvalMessages);
+            data.put("approvalMessages", finalizedMessages);
         } else if (!interactions.isEmpty()) {
             data.put("humanInTheLoopInfos", interactions);
+        }
+        if (master.getState() == AgentRunState.CANCELLED) {
+            data.put("terminalMessages", finalizedMessages);
         }
         if (master.getState() != AgentRunState.COMPLETED
                 && master.getState() != AgentRunState.WAITING_APPROVAL) {
@@ -174,13 +167,16 @@ public class ChatStreamOutputAdapter {
     }
 
     private static String unresolvedEvent(String pipelineRunId, ReactiveTaskState taskState,
-                                          String conversationId) {
+                                          String conversationId, List<MessageInfo> terminalMessages) {
         JSONObject data = new JSONObject();
         data.put("conversationId", conversationId);
         data.put("pipelineRunId", pipelineRunId);
         boolean cancelled = taskState == ReactiveTaskState.CANCELLED;
         data.put("state", cancelled ? "cancelled" : "failed");
         data.put("nextAction", "none");
+        if (!terminalMessages.isEmpty()) {
+            data.put("terminalMessages", terminalMessages);
+        }
         if (!cancelled) {
             data.put("errorMessage", "聊天请求执行失败");
         }

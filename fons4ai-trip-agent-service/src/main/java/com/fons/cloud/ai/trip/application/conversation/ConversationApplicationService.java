@@ -1,5 +1,7 @@
 package com.fons.cloud.ai.trip.application.conversation;
 
+import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
+
 import cn.hutool.core.lang.Assert;
 import com.alibaba.fastjson2.JSON;
 import com.fons.cloud.ai.agent.infrastructure.session.ActiveAgentSessionStore;
@@ -11,6 +13,7 @@ import com.fons.cloud.ai.agent.model.request.HitlRequestInfo;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.agent.model.runtime.AgentRunState;
 import com.fons.cloud.ai.trip.agent.core.TripAgent;
+import com.fons.cloud.ai.trip.agent.tool.TripToolCatalog;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutePipeline;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
@@ -84,6 +87,11 @@ public class ConversationApplicationService {
     private final ChatRequestTraceDomainService chatRequestTraceDomainService;
 
     /**
+     * 实际装配的业务工具名；SDK 内部工具只保留在明细，不进入 used_tools。
+     */
+    private final TripToolCatalog tripToolCatalog;
+
+    /**
      * 发起一次聊天请求, 流式输出
      * <p>
      * 1. 如果传入的conversationId在库里不存在 会默认创建新会话
@@ -104,14 +112,17 @@ public class ConversationApplicationService {
 
         // 构建Agent请求
         AgentRequest agentRequest = buildAgentRequest(request, aggregate);
-        ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run = agentExecutePipeline.run(agentRequest, result -> Mono.fromRunnable(() -> handleChatResult(aggregate, result, null)));
+        var context = AgentPipelineExecuteContext.create(agentRequest);
+        ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run = agentExecutePipeline.run(agentRequest,
+                result -> Mono.fromRunnable(() -> handleChatResult(aggregate, result, null)), context);
 
-        return streamRun(aggregate, run, null);
+        return streamRun(aggregate, run, null, context);
     }
 
     private Flux<String> streamRun(ChatMessageAggregate aggregate,
                                    ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
-                                   ApprovalReplay replay) {
+                                   ApprovalReplay replay,
+                                   AgentPipelineExecuteContext context) {
         ChatRequestTrace trace = aggregate.getTrace();
         String taskId = trace.getTaskId();
         String traceRunId = trace.getRunId();
@@ -164,21 +175,29 @@ public class ConversationApplicationService {
                         }
                         reactiveRunManager.release(taskId, pipelineRunId);
                     }).subscribeOn(Schedulers.boundedElastic()).then(outcome.hasValue()
-                            ? finalizeRunResult(aggregate, outcome.get())
+                            ? finalizeRunResult(aggregate, outcome.get(), context)
                             : Mono.fromCallable(() -> {
-                                clearConversationExecution(aggregate, pipelineRunId);
-                                return List.<MessageInfo>of();
-                            }).subscribeOn(Schedulers.boundedElastic())))
+                        if (run.state() == ReactiveTaskState.CANCELLED) {
+                            return finalizeCancelledRun(aggregate, pipelineRunId, context);
+                        }
+                        transactionTemplate.executeWithoutResult(status -> {
+                            saveFinalExecutionSummary(aggregate, context);
+                            clearConversationExecution(aggregate, pipelineRunId);
+                        });
+                        return List.<MessageInfo>of();
+                    }).subscribeOn(Schedulers.boundedElastic())))
                     .cache();
-            // 从退出信号开始观察，不会提前订阅 completion 启动任务；断线也完成审批就绪发布。
-            terminalMessages.subscribe(ignored -> { }, error ->
+            // 从退出信号开始观察，不会提前订阅 completion 启动任务；断线也完成取消落库和审批交接。
+            terminalMessages.subscribe(ignored -> {
+            }, error ->
                     log.error("[CHAT]实际执行收口或会话占用清理失败，pipelineRunId:{}", pipelineRunId, error));
             return chatStreamOutputAdapter.adapt(run,
                             new CandidateOwner(aggregate.getConversation().getUserId(), aggregate.getConversationId()),
-                            result -> terminalMessages, terminalMessages.then())
+                            terminalMessages)
                     .doOnCancel(run::cancel);
         });
     }
+
     /**
      * 中断正在执行任务的Agent
      * <p>
@@ -213,7 +232,9 @@ public class ConversationApplicationService {
         return R.success();
     }
 
-    /** 登录态限定会话归属；取消受理不表示执行占用已经释放。 */
+    /**
+     * 登录态限定会话归属；取消受理不表示执行占用已经释放。
+     */
     public R<ConversationExecutionInfo> execution(String userId, String conversationId) {
         ChatConversation conversation = chatConversationDomainService.findByUseIdAndConversationId(userId, conversationId);
         if (conversation == null) return R.failed(TripAgentResultCode.CONVERSATION_NOT_EXIST);
@@ -252,9 +273,10 @@ public class ConversationApplicationService {
             ApprovalReplay replay = prepareReplay(submission);
             persistReplay(replay, submission);
             try {
+                var context = AgentPipelineExecuteContext.create(replay.request());
                 ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run = agentExecutePipeline.run(
-                        replay.request(), result -> Mono.fromRunnable(() -> handleChatResult(replay.aggregate(), result, replay)));
-                return streamRun(replay.aggregate(), run, replay);
+                        replay.request(), result -> Mono.fromRunnable(() -> handleChatResult(replay.aggregate(), result, replay)), context);
+                return streamRun(replay.aggregate(), run, replay, context);
             } catch (RuntimeException error) {
                 // 创建/登记前尚无执行者，才允许释放票证；Run启动后绝不按HTTP失败重放。
                 updateTraceStateQuietly(replay.aggregate().gerRunId(), TaskState.FAILED);
@@ -264,7 +286,9 @@ public class ConversationApplicationService {
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
-    /** 可信批次、完整决定及原生参数校验均先于票证占用，不在这里执行工具。 */
+    /**
+     * 可信批次、完整决定及原生参数校验均先于票证占用，不在这里执行工具。
+     */
     private ApprovalReplay prepareReplay(ConversationReplayRequest request) {
         if (request == null || StringUtils.isAnyBlank(request.getUserId(), request.getConversationId(),
                 request.getPauseId(), request.getRequestId()) || request.getPauseVersion() == null
@@ -330,7 +354,9 @@ public class ConversationApplicationService {
         return new ApprovalReplay(new ChatMessageAggregate(conversation, trace, List.of(audit)), agentRequest, messageIds);
     }
 
-    /** 快照读取与事务内重读均使用此校验；条件更新负责覆盖最后的并发占用窗口。 */
+    /**
+     * 快照读取与事务内重读均使用此校验；条件更新负责覆盖最后的并发占用窗口。
+     */
     private void validateReplayTickets(List<ChatMessageHitl> tickets, ConversationReplayRequest request) {
         if (tickets.isEmpty()) {
             throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
@@ -358,7 +384,9 @@ public class ConversationApplicationService {
                 () -> BusinessRuntimeException.of(TripAgentResultCode.HITL_LEGACY_CREDENTIAL));
     }
 
-    /** 整批占用、一个恢复Trace和一个完整决定审计原子保存；影响行数不足全部回滚。 */
+    /**
+     * 整批占用、一个恢复Trace和一个完整决定审计原子保存；影响行数不足全部回滚。
+     */
     private void persistReplay(ApprovalReplay replay, ConversationReplayRequest submission) {
         transactionTemplate.executeWithoutResult(status -> {
             List<ChatMessageHitl> current = chatMessageHitlDomainService.findBatch(submission.getConversationId(), submission.getPauseId());
@@ -376,12 +404,15 @@ public class ConversationApplicationService {
         });
     }
 
-    /** 固定本次恢复的持有者及消息集合，只在该请求的Pipeline闭包内使用。 */
+    /**
+     * 固定本次恢复的持有者及消息集合，只在该请求的Pipeline闭包内使用。
+     */
     private record ApprovalReplay(ChatMessageAggregate aggregate, AgentRequest request, List<String> messageIds) {
     }
 
     /**
      * 删除会话
+     *
      * @param conversationId
      * @param userId
      * @return
@@ -425,7 +456,9 @@ public class ConversationApplicationService {
         }
     }
 
-    /** 异常及取消可能发生在结果处理器之前；只关闭仍由本Run持有的票证。 */
+    /**
+     * 异常及取消可能发生在结果处理器之前；只关闭仍由本Run持有的票证。
+     */
     private void failReplayQuietly(ApprovalReplay replay) {
         if (replay != null) {
             try {
@@ -452,11 +485,13 @@ public class ConversationApplicationService {
         AgentRunState state = masterResult.getState();
         ChatRequestTrace trace = aggregate
                 .setAnalysisContent(result.queryRewriteResult(), result.recognitionResult())
-                .setTraceTools(masterResult.getCompleteInfo() == null ? null : masterResult.getCompleteInfo().getTools())
+                .setExecutionSummary(result.executionSummary(), replay == null ? null : replay.request().getHitlRequestInfo().getOriginRunId(),
+                        tripToolCatalog.toolNames())
                 .setTraceState(getTaskState(state))
                 .getTrace();
 
         // 失败、取消和拒绝结果不一定有 completeInfo，仍需独立持久化 Trace。
+        // 取消提示由实际退出后的 finalizeCancelledRun 保存，不能在这里只凭逻辑终态宣告结束。
         List<ChatMessage> chatMessages = switch (state) {
             case COMPLETED, WAITING_APPROVAL -> {
                 ChatConversation conversation = aggregate.getConversation();
@@ -497,7 +532,7 @@ public class ConversationApplicationService {
     }
 
     private List<ChatMessageHitl> createApprovalDetails(AgentRunResult result, List<ChatMessage> messages,
-                                                       String pipelineRunId) {
+                                                        String pipelineRunId) {
         Assert.notEmpty(result.getHumanInTheLoopInfos(),
                 () -> SystemIntervalException.of("Agent审批结果缺少审批凭证"));
         List<HumanInTheLoopInfo> approvals = result.getHumanInTheLoopInfos().stream()
@@ -528,49 +563,97 @@ public class ConversationApplicationService {
     }
 
     /**
-     * 在Pipeline结果和实际退出均确认后交接执行权，再将完整审批批次开放给客户端。
+     * 在Pipeline结果和实际退出均确认后交接执行权，保存取消提示或将完整审批批次开放给客户端。
      * 存储或交接失败时保留PREPARED，历史接口也不能提前展示这些卡片。
      */
     private Mono<List<MessageInfo>> finalizeRunResult(ChatMessageAggregate aggregate,
-                                                     AgentExecutePipeline.PipelineResult result) {
+                                                      AgentExecutePipeline.PipelineResult result,
+                                                      AgentPipelineExecuteContext context) {
         return Mono.fromCallable(() -> {
-            String conversationId = aggregate.getConversationId();
-            String pipelineRunId = result.pipelineRunId();
-            // 调用方已等待实际退出及租约释放；这里完成数据库占用与审批状态交接。
-            AgentRunResult master = result.masterAgentResult();
-            if (master.getState() != AgentRunState.WAITING_APPROVAL) {
-                clearConversationExecution(aggregate, pipelineRunId);
-                return List.<MessageInfo>of();
-            }
-            HumanInTheLoopInfo first = master.getHumanInTheLoopInfos().getFirst();
-            return transactionTemplate.execute(status -> {
-                // 执行权交接与审批就绪同事务提交，刷新不能看到“空闲但卡片尚未开放”的窗口。
-                clearConversationExecution(aggregate, pipelineRunId);
-                List<ChatMessageHitl> tickets = chatMessageHitlDomainService.findBatch(
-                        conversationId, first.getPauseId(), first.getPauseVersion(), pipelineRunId);
-                Assert.isTrue(tickets.size() == master.getHumanInTheLoopInfos().size()
-                                && tickets.stream().allMatch(ticket -> ticket.getStatus() == ChatMessageHitlStatus.PREPARED),
-                        () -> SystemIntervalException.of("准备中的审批批次不完整，不能开放部分审批"));
-                Assert.isTrue(chatMessageHitlDomainService.markBatchPending(conversationId, first.getPauseId(),
-                                first.getPauseVersion(), pipelineRunId) == tickets.size(),
-                        () -> SystemIntervalException.of("审批批次就绪状态更新冲突"));
-                tickets.forEach(ticket -> ticket.setStatus(ChatMessageHitlStatus.PENDING));
-                Map<String, ChatMessage> messages = chatMessageDomainService.listByIds(
-                                tickets.stream().map(ChatMessageHitl::getMessageId).toList()).stream()
-                        .collect(Collectors.toMap(ChatMessage::getMessageId, Function.identity()));
-                Assert.isTrue(messages.size() == tickets.size(),
-                        () -> SystemIntervalException.of("审批消息缺失，不能发布恢复凭证"));
-                return tickets.stream().map(ticket -> approvalMessageInfo(messages.get(ticket.getMessageId()), ticket))
-                        .toList();
-            });
-        }).subscribeOn(Schedulers.boundedElastic())
+                    String conversationId = aggregate.getConversationId();
+                    String pipelineRunId = result.pipelineRunId();
+                    // 调用方已等待实际退出及租约释放；这里完成数据库占用与审批状态交接。
+                    AgentRunResult master = result.masterAgentResult();
+                    if (master.getState() == AgentRunState.CANCELLED) {
+                        return finalizeCancelledRun(aggregate, pipelineRunId, context);
+                    }
+                    if (master.getState() != AgentRunState.WAITING_APPROVAL) {
+                        transactionTemplate.executeWithoutResult(status -> {
+                            saveFinalExecutionSummary(aggregate, context);
+                            clearConversationExecution(aggregate, pipelineRunId);
+                        });
+                        return List.<MessageInfo>of();
+                    }
+                    HumanInTheLoopInfo first = master.getHumanInTheLoopInfos().getFirst();
+                    return transactionTemplate.execute(status -> {
+                        saveFinalExecutionSummary(aggregate, context);
+                        // 执行权交接与审批就绪同事务提交，刷新不能看到“空闲但卡片尚未开放”的窗口。
+                        clearConversationExecution(aggregate, pipelineRunId);
+                        List<ChatMessageHitl> tickets = chatMessageHitlDomainService.findBatch(
+                                conversationId, first.getPauseId(), first.getPauseVersion(), pipelineRunId);
+                        Assert.isTrue(tickets.size() == master.getHumanInTheLoopInfos().size()
+                                        && tickets.stream().allMatch(ticket -> ticket.getStatus() == ChatMessageHitlStatus.PREPARED),
+                                () -> SystemIntervalException.of("准备中的审批批次不完整，不能开放部分审批"));
+                        Assert.isTrue(chatMessageHitlDomainService.markBatchPending(conversationId, first.getPauseId(),
+                                        first.getPauseVersion(), pipelineRunId) == tickets.size(),
+                                () -> SystemIntervalException.of("审批批次就绪状态更新冲突"));
+                        tickets.forEach(ticket -> ticket.setStatus(ChatMessageHitlStatus.PENDING));
+                        Map<String, ChatMessage> messages = chatMessageDomainService.listByIds(
+                                        tickets.stream().map(ChatMessageHitl::getMessageId).toList()).stream()
+                                .collect(Collectors.toMap(ChatMessage::getMessageId, Function.identity()));
+                        Assert.isTrue(messages.size() == tickets.size(),
+                                () -> SystemIntervalException.of("审批消息缺失，不能发布恢复凭证"));
+                        return tickets.stream().map(ticket -> approvalMessageInfo(messages.get(ticket.getMessageId()), ticket))
+                                .toList();
+                    });
+                }).subscribeOn(Schedulers.boundedElastic())
                 .doOnError(error -> updateTraceStateQuietly(aggregate.gerRunId(), TaskState.FAILED));
     }
 
-    /** 正式事件只使用已持久化消息及凭证；客户端按messageId展示并提交整批决定。 */
+    /**
+     * 两种取消路径统一落库：Pipeline 被取消而没有结果，或 Master 返回 CANCELLED。
+     * 调用方已等待 termination，并缓存整条收尾链；SSE 与后台观察者共用一次写入。
+     */
+    private List<MessageInfo> finalizeCancelledRun(ChatMessageAggregate aggregate, String pipelineRunId,
+                                                   AgentPipelineExecuteContext context) {
+        return transactionTemplate.execute(status -> {
+            saveFinalExecutionSummary(aggregate, context);
+            // 同一事务交还数据库占用并保存提示，刷新不会看到空闲却没有取消结果的窗口。
+            clearConversationExecution(aggregate, pipelineRunId);
+            ChatMessage message = ChatMessage.createCancellation(
+                    aggregate.getConversationId(), aggregate.gerRunId(), pipelineRunId);
+            Assert.isTrue(chatMessageDomainService.save(message),
+                    () -> SystemIntervalException.of("保存取消消息失败"));
+            return List.of(MessageInfo.builder()
+                    .id(message.getMessageId()).role(message.getRole().getCode())
+                    .runId(message.getRunId())
+                    .content(message.getContent()).created(message.getCreated().getTime())
+                    .messageContentType(message.getType().name())
+                    .extra(JSON.parseObject(message.getExtra())).build());
+        });
+    }
+
+    /**
+     * 调用方已经等待真实退出，此时可读取包括取消后迟到工具在内的最终已知结果。
+     */
+    private void saveFinalExecutionSummary(ChatMessageAggregate aggregate,
+                                           AgentPipelineExecuteContext context) {
+        var hitl = context.getUserInput().getHitlRequestInfo();
+        aggregate.setAnalysisContent(context.getQueryRewriteResult(), context.getRecognitionResult())
+                .setExecutionSummary(context.executionSummary(), hitl == null ? null : hitl.getOriginRunId(), tripToolCatalog.toolNames());
+        // 仅更新摘要列；状态由既有收口决定，不能被创建时的 init 覆盖。
+        Assert.isTrue(chatRequestTraceDomainService.updateExecutionSummary(aggregate.getTrace()),
+                () -> SystemIntervalException.of("保存请求执行摘要失败"));
+    }
+
+    /**
+     * 正式事件只使用已持久化消息及凭证；客户端按messageId展示并提交整批决定。
+     */
     private MessageInfo approvalMessageInfo(ChatMessage message, ChatMessageHitl ticket) {
         return MessageInfo.builder().id(message.getMessageId()).role(message.getRole().getCode())
+                .runId(message.getRunId())
                 .content(message.getContent()).agentName(message.getAgentName()).thinking(message.getThinking())
+                .extra(StringUtils.isBlank(message.getExtra()) ? null : JSON.parseObject(message.getExtra()))
                 .created(message.getCreated() == null ? null : message.getCreated().getTime())
                 .messageContentType(message.getType().name()).hitlId(ticket.getHitlId())
                 .pauseId(ticket.getPauseId()).pauseVersion(ticket.getPauseVersion()).resumeRef(ticket.getResumeRef())
@@ -584,17 +667,23 @@ public class ConversationApplicationService {
         }
     }
 
-    /** 数据库占用尚未清理时保守拒绝，即使连接已关闭或 Redis 租约查询异常。 */
+    /**
+     * 数据库占用尚未清理时保守拒绝，即使连接已关闭或 Redis 租约查询异常。
+     */
     private void requireExecutionReleased(ChatConversation conversation) {
         if (StringUtils.isNotBlank(conversation.getActiveRunId())) {
             throw new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING);
         }
     }
 
-    /** 只清理本次运行的占用，清理未确认成功时不能向客户端宣告空闲。 */
+    /**
+     * 只清理本次运行的占用，清理未确认成功时不能向客户端宣告空闲。
+     */
     private void clearConversationExecution(ChatMessageAggregate aggregate, String pipelineRunId) {
         String conversationId = aggregate.getConversationId();
-        if (chatConversationDomainService.clearActiveRunIdIfMatch(conversationId, pipelineRunId)) return;
+        if (chatConversationDomainService.clearActiveRunIdIfMatch(conversationId, pipelineRunId)) {
+            return;
+        }
         ChatConversation current = chatConversationDomainService.findByUseIdAndConversationId(
                 aggregate.getConversation().getUserId(), conversationId);
         Assert.isTrue(current != null && StringUtils.isBlank(current.getActiveRunId()),
@@ -617,8 +706,8 @@ public class ConversationApplicationService {
      * 更新目前trace的活跃状态
      *
      * @param conversationId
-     * @param traceRunId 请求追踪 ID
-     * @param pipelineRunId 运行管理器 ID
+     * @param traceRunId     请求追踪 ID
+     * @param pipelineRunId  运行管理器 ID
      */
     private void updateTraceActive(String conversationId, String traceRunId, String pipelineRunId) {
         transactionTemplate.execute(status -> {
@@ -714,7 +803,6 @@ public class ConversationApplicationService {
                 .contents(messages.stream().map(chatMessageConverter::convertAgentInputContent).toList())
                 .build();
     }
-
 
 
 }

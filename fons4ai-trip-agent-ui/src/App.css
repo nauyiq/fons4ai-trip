@@ -3630,3 +3630,16 @@ html, body {
   max-height: 360px;
   border-radius: 8px;
 }
+
+/* 请求级摘要与消息正文分开；同一 Run 的多张审批卡只展示一次。 */
+.request-summary {
+  margin: 0 0 16px 48px;
+  color: #646d7a;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.request-summary summary { cursor: pointer; padding: 6px 0; }
+.request-summary dl { margin: 8px 0; }
+.request-summary dt { font-weight: 600; margin-top: 8px; }
+.request-summary dd { margin: 4px 0 10px; white-space: pre-wrap; }
+.approval-thinking { margin: 0 0 12px 48px; }

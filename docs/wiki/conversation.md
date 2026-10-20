@@ -45,6 +45,8 @@ sequenceDiagram
 
 审批卡来自已持久化并就绪的 `approvalMessages`；`approvalReady=true` 不由模型正文推断。`state=completed` 表示 Agent 当前分段结束，不代表业务审批通过、规划审核通过或已经完成预订。
 
+取消结束时，`terminalMessages` 返回已入库的系统提示，沿用历史消息的 ID、创建时间和内容。前端按真实 ID 合并；`extra.runState` 与 `extra.pipelineRunId` 用于核对本次取消，不用旧记录覆盖后续请求的错误。
+
 ## 停止不是立刻释放
 
 ```mermaid
@@ -52,8 +54,9 @@ flowchart LR
     Request[停止请求] --> Accept[取消已受理]
     Accept --> Drain[停止新执行并等待受管工作退出]
     Drain --> Term[termination 正常完成]
-    Term --> Release[释放租约与匹配的数据库占用]
-    Release --> End[发送最终 run_ended]
+    Term --> Release[释放本次运行租约]
+    Release --> Persist[同事务保存取消提示并清理匹配的数据库占用]
+    Persist --> End[发送最终 run_ended 与持久化消息]
 ```
 
 `POST /api/conversation/interrupt/{conversationId}` 从登录用户定位会话，再对当前 Pipeline Run 发起取消。前端应在停止收尾期间保持占用。`GET /{conversationId}/execution` 可能返回 `IDLE`、`RUNNING`、`STOPPING` 或 `UNKNOWN`；数据库仍记录执行而 Redis 不可确认时保留占用，不能自动清空或抢占。
@@ -63,10 +66,26 @@ flowchart LR
 ## 标题、历史和删除
 
 - 新会话在后端从首次有效文本生成标题：规范化空白，最多 24 个 Unicode 码点；无有效文本使用“新会话”。标题随 `ChatConversation` 一起入库，当前没有首次 LLM 自动命名机制。
-- 历史从业务 `chat_message` 读取；SDK 的记忆、transcript 或中断回复不会自动变为前端聊天历史。
+- 历史正文从业务 `chat_message` 读取；分析与执行摘要按业务 `runId` 批量关联 `chat_request_trace`。SDK 的记忆、transcript 或中断回复不会自动变为前端聊天历史。
 - 删除首先校验登录归属和空闲状态，事务内以 `active_run_id IS NULL` 条件删除会话并删除对应业务轨迹/消息。会话使用 MyBatis Plus 逻辑删除；不据此推断已清理全部 SDK、Redis、OSS 或 Langfuse 数据。
 
-**当前缺口：**取消、超时和失败等分支可能更新业务轨迹却不保存一条可展示的业务终态消息。`handleChatResult()` 对 `CANCELLED` 等结果返回空消息列表，前端 `runError` 是内存状态，因此刷新后可能只剩用户消息。这是待修复行为，不能将“SDK 已保存中断回复”视为问题已解决。
+取消提示在实际退出后的收尾链保存：Pipeline 被取消而未产生结果，以及 Master 返回 `CANCELLED`，都进入 `finalizeCancelledRun()`，写入一条 `role=system`、内容为“本次执行已取消。”的业务消息。它与清理匹配的数据库占用同事务提交，保存失败时回滚占用清理，不能宣告取消已完成。收尾链由后台独立观察并缓存，SSE 断开不会放弃落库，事件发布和后台观察也不会各写一条。
+
+这里保存的是取消状态提示；SDK 的内部中断文案和未完成的流式正文不会因此自动复制到业务历史。停止受理到实际退出之间仍保持 `STOPPING`；没有可靠来源时不区分“用户点击停止”与“连接断开触发取消”。普通失败、超时等分支的提示持久化仍是后续范围。
+
+2026-10-18：后端生产编译、前端 TypeScript 检查与构建通过。重启后完成一条普通请求的最小手工验证：在问题改写阶段点击停止，页面先显示“正在停止”，随后显示取消提示；整页刷新后提示仍保留且只出现一次，输入框恢复可用。MySQL MCP 只读确认用户消息与系统取消消息属于同一业务 Run，且 `active_run_id` 已清空。会话为 `TRC1792335241603879d5d`，业务 Run 为 `TRT1792335241730879d5e`，Pipeline 为 `af7b8b91115341aba571bd3348cd5c93`。
+
+本次未新增或执行单元测试，也未验证 Master 返回 `CANCELLED`、审批恢复中取消、断连后后台落库、保存失败回滚或多节点场景。截图和摘要保存在本地 `target/manual/cancellation-history-20261018/`，属于可清理的环境产物。旧会话缺失的取消记录不自动补写。
+
+## 请求摘要与模型思考
+
+当前工作树已接入两表读取与保存：正文及 Master 实际思考在 `chat_message`；问题改写、意图结果在 `chat_request_trace.analysis_content`；执行事实在 `execution_summary`，`used_tools` 只投影实际装配且已执行的业务工具名。框架内部工具仍保留在明细，待审批与业务防重短路不计作实际业务执行。
+
+2026-10-20 的只读双任务已确认分析、Master 思考、父子模型用量及业务工具分类落库；模型阶段取消也保存了未知用量和一条刷新可读的取消提示。重启后已确认历史摘要解析、工具终态修复生效；双审批一次提交后，新 Run 单独统计新增查询与模型用量，并通过 originRunId 关联旧分段。刷新后两段摘要和已处理卡片保留。审批等待结果遗漏分段内容的修复也已通过新请求复验：两张审批消息仅第一张携带496字符 Master 思考，批次上方仅展示一次，刷新后与流式原文逐字一致。上述是核心路径的最小验收，未覆盖边界和具体 Run/截图集中见 [任务规划](../development/features/20261019-request-summary/任务规划.md)。
+
+同 Run 的首条 TEXT Agent/AgentHitl 消息承载一份 Master 思考，`extra.thinkingAgentName` 明确来源；审批批次上方只展示一次。分析过程提示和刷新后的分析结果来自各自入口，不混成模型思考。取消仍保存既有状态提示和已知请求摘要，本阶段不补存未完成的模型正文/思考。
+
+`used_token` 是本 Run 可取得的输入与输出 Token 小计，缓存输入不重复相加；完整性以 JSON 中的 `usageComplete` 判断。SDK 原生压缩/记忆维护可能绕过模型事件，相应节点存在这些中间件时保守标为不完整。未知不能解释为零，关闭观测不改变摘要链路。详细规则与验收范围见 [本次设计](../development/features/20261019-request-summary/技术设计.md)。
 
 ## 接口与源码阅读入口
 
@@ -78,4 +97,4 @@ API 基路径为 `/api/conversation`：`POST /stream`、`POST /replay`、`POST /
 4. [ChatConversation](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/entity/ChatConversation.java)、[会话领域服务](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/service/impl/ChatConversationDomainServiceImpl.java)：标题、逻辑删除和条件更新。
 5. [前端 chat API](../../fons4ai-trip-agent-ui/src/api/chat.ts)、[ChatWindow](../../fons4ai-trip-agent-ui/src/components/ChatWindow.tsx)、[chatStore](../../fons4ai-trip-agent-ui/src/store/chatStore.ts)：SSE 解析与页面状态。
 
-已有对话和 SSE 测试可从 [测试目录](../../fons4ai-trip-agent-service/src/test/java/com/fons/cloud/ai/trip/application/conversation/) 阅读。本轮未执行这些测试或重新验证页面。
+已有对话和 SSE 测试可从 [测试目录](../../fons4ai-trip-agent-service/src/test/java/com/fons/cloud/ai/trip/application/conversation/) 阅读。本轮未执行这些测试；取消提示的手工验证范围见上文。

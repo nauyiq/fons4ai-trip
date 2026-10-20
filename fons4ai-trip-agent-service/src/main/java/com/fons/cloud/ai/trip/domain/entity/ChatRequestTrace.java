@@ -50,6 +50,9 @@ public class ChatRequestTrace {
      */
     private String usedTools;
 
+    /** 当前请求的执行摘要 JSON；旧记录为 null，不能解释为未调用任何工具。 */
+    private String executionSummary;
+
     /**
      * 任务执行的最终状态
      */

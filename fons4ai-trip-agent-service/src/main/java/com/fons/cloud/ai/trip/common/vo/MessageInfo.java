@@ -25,6 +25,12 @@ public class MessageInfo implements Serializable {
      */
     private String id;
 
+    /** 业务请求身份，供前端按 Run 组合消息与分析/执行摘要。 */
+    private String runId;
+
+    /** 请求轨迹的只读投影，未有历史数据时为空。 */
+    private RequestTraceInfo requestTrace;
+
     /**
      * 角色 {@link com.fons.cloud.ai.trip.common.constants.ChatRole}
      */

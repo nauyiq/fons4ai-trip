@@ -2,6 +2,7 @@ package com.fons.cloud.ai.trip.domain.entity;
 
 import cn.hutool.core.lang.Assert;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
@@ -11,9 +12,9 @@ import com.fons.cloud.ai.agent.model.hitl.HumanInTheLoopKind;
 import com.fons.cloud.ai.agent.model.response.AgentCompleteInfo;
 import com.fons.cloud.ai.agent.model.response.AgentMediaInfo;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
-import com.fons.cloud.ai.agent.model.runtime.AgentRunState;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
+import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.ai.trip.infrastructure.util.IdGenerator;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
@@ -26,7 +27,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 /**
  * 对话消息
@@ -69,7 +69,7 @@ public class ChatMessage extends BaseEntity {
     private String content;
 
     /**
-     * 构造给用户的思考内容, 并非表示LLM的思考内容
+     * Master 实际输出的模型思考；分析阶段提示保存在请求轨迹，不混入此字段。
      */
     private String thinking;
 
@@ -125,6 +125,26 @@ public class ChatMessage extends BaseEntity {
                 .build();
     }
 
+    /**
+     * 执行确认退出后保存取消提示；这是业务终态消息，不是模型答复或可恢复的审批。
+     * Pipeline 身份用于前端核对本轮状态，避免历史取消提示覆盖后续请求的错误。
+     */
+    public static ChatMessage createCancellation(String conversationId, String runId, String pipelineRunId) {
+        ChatMessage message = ChatMessage.builder()
+                .messageId(generateMessageId())
+                .conversationId(conversationId)
+                .runId(runId)
+                .role(ChatRole.SYSTEM)
+                .type(ChatMessageContentType.TEXT)
+                .content("本次执行已取消。")
+                .extra(JSON.toJSONString(Map.of("runState", "cancelled", "pipelineRunId", pipelineRunId)))
+                .deleted(false)
+                .build();
+        // 实时事件与历史使用同一创建时间，不依赖客户端收到事件的时间。
+        message.setCreated(new Date());
+        return message;
+    }
+
     public static List<ChatMessage> createAgent(String agentName, AgentRunResult result) {
         List<HumanInTheLoopInfo> humanInTheLoopInfos = result.getHumanInTheLoopInfos();
         if (CollectionUtils.isNotEmpty(humanInTheLoopInfos)) {
@@ -144,7 +164,7 @@ public class ChatMessage extends BaseEntity {
             if (CollectionUtils.isNotEmpty(approvals)) {
                 hitlMessages.addAll(createApproval(result));
             }
-            return hitlMessages;
+            return attachMasterThinking(hitlMessages, result);
         } else {
             // 创建最终Agent回复的消息
             AgentCompleteInfo completeInfo = result.getCompleteInfo();
@@ -154,7 +174,6 @@ public class ChatMessage extends BaseEntity {
                     .runId(result.getRunId())
                     .messageId(generateMessageId())
                     .content(completeInfo.getFinalAnswer())
-                    .thinking(completeInfo.getThinking())
                     .conversationId(result.getConversationId())
                     .agentName(agentName)
                     .role(ChatRole.AGENT)
@@ -177,7 +196,7 @@ public class ChatMessage extends BaseEntity {
                         .deleted(false).build()).toList();
                 messages.addAll(mediaMessages);
             }
-            return messages;
+            return attachMasterThinking(messages, result);
         }
 
 
@@ -197,7 +216,6 @@ public class ChatMessage extends BaseEntity {
         List<HumanInTheLoopInfo> approvalInfos = result.getHumanInTheLoopInfos().stream().filter(hitl -> hitl.getKind() == HumanInTheLoopKind.INPUT_REQUIRED).toList();
         Assert.notEmpty(approvalInfos, () -> SystemIntervalException.of("未发现信息补充消息， 无法创建Agent信息补充消息"));
 
-        AgentCompleteInfo completeInfo = result.getCompleteInfo();
         return approvalInfos.stream().map(requiredInfo -> ChatMessage.builder()
                 .runId(result.getRunId())
                 .messageId(generateMessageId())
@@ -207,7 +225,6 @@ public class ChatMessage extends BaseEntity {
                 .role(ChatRole.AGENT)
                 .content(requiredInfo.getQuestion())
                 .extra(JSON.toJSONString(requiredInfo.getData()))
-                .thinking(completeInfo == null ? "" : completeInfo.getThinking())
                 .type(ChatMessageContentType.TEXT)
                 .deleted(false)
                 .build()).toList();
@@ -226,7 +243,6 @@ public class ChatMessage extends BaseEntity {
         List<HumanInTheLoopInfo> approvalInfos = result.getHumanInTheLoopInfos().stream().filter(hitl -> hitl.getKind() == HumanInTheLoopKind.APPROVAL).toList();
         Assert.notEmpty(approvalInfos, () -> SystemIntervalException.of("未发现审批消息， 无法创建Agent审批消息"));
 
-        AgentCompleteInfo completeInfo = result.getCompleteInfo();
         return approvalInfos.stream().map(hitl -> ChatMessage.builder()
                 .runId(result.getRunId())
                 .messageId(generateMessageId())
@@ -234,13 +250,31 @@ public class ChatMessage extends BaseEntity {
                 .agentName(hitl.getSourceAgent())
                 .role(ChatRole.AGENT_HITL)
                 .content(StringUtils.defaultIfBlank(hitl.getQuestion(), "Agent 即将执行以下操作，请确认"))
-                .thinking(completeInfo == null ? "" : completeInfo.getThinking())
                 .type(ChatMessageContentType.TEXT)
                 .deleted(false).build()).toList();
     }
 
     public static String generateMessageId() {
         return IdGenerator.next(IdGenerator.Prefix.MESSAGE);
+    }
+
+    /**
+     * 一个分段只保存一份 Master 思考。审批正文可以属于子 Agent，思考来源仍显式指向 Master。
+     * 仅合并新增元数据，不覆盖信息补充消息已经保存的 extra。
+     */
+    private static List<ChatMessage> attachMasterThinking(List<ChatMessage> messages, AgentRunResult result) {
+        String thinking = result.getCompleteInfo() == null ? null : result.getCompleteInfo().getThinking();
+        if (StringUtils.isBlank(thinking)) return messages;
+        messages.stream().filter(message -> message.getType() == ChatMessageContentType.TEXT
+                        && (message.getRole() == ChatRole.AGENT || message.getRole() == ChatRole.AGENT_HITL))
+                .findFirst().ifPresent(message -> {
+                    message.setThinking(thinking);
+                    var extra = StringUtils.isBlank(message.getExtra())
+                            ? new JSONObject() : JSON.parseObject(message.getExtra());
+                    extra.put("thinkingAgentName", TripAgent.MASTER_AGENT.getAgentName());
+                    message.setExtra(extra.toJSONString());
+                });
+        return messages;
     }
 
 

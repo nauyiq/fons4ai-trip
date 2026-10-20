@@ -1,9 +1,12 @@
 package com.fons.cloud.ai.trip.agent.pipeline.support;
 
+import com.fons.cloud.ai.trip.infrastructure.util.ExtractUtils;
+
+import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
+
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
-import com.fons.cloud.ai.agent.model.response.AgentResponse;
 import com.fons.cloud.ai.trip.agent.core.QueryRewriteAgent;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
@@ -28,6 +31,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * LLM进行问题改写步骤
@@ -105,10 +109,17 @@ public class QueryWritingStepHandler extends AbstractAgentExecuteHandler {
      */
     private Mono<ExecuteResult> executeQueryRewrite(AgentPipelineExecuteContext context, ReactiveTaskScope<String> scope, String analysisRunId) {
         // 发送一次thinking事件
-        scope.events().emit(AgentResponse.thinking("正在结合历史上下文理解你的问题……").toJson());
+        emitAnalysis(scope, "queryRewriteAgent", "正在结合历史上下文理解你的问题……");
         return Mono.fromCallable(() -> buildRewriteInput(context.getUserInput()))
                 .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(queryRewriteAgent::call)
+                .flatMap(messages -> {
+                    context.queryRewriteUsage(new AgentExecutionSummary.ModelCall(
+                            UUID.randomUUID().toString(), "queryRewriteAgent", null, null, null, null, false));
+                    return queryRewriteAgent.call(messages).doOnNext(message -> {
+                        var usage = ExtractUtils.modelUsage(message);
+                        if (usage != null) context.queryRewriteUsage(usage);
+                    });
+                })
                 .flatMap(msg -> handleAgentResult(context, scope, analysisRunId, msg));
     }
 
@@ -137,7 +148,7 @@ public class QueryWritingStepHandler extends AbstractAgentExecuteHandler {
         context.rewriteResult(rewriteResult);
         return Mono.fromRunnable(() -> repository.saveQueryRewriteResult(context.getUserId(), analysisRunId, rewriteResult))
                 .subscribeOn(Schedulers.boundedElastic())
-                .then(Mono.fromRunnable(() -> scope.events().emit(AgentResponse.thinking(rewriteResult).toJson())))
+                .then(Mono.fromRunnable(() -> emitAnalysis(scope, "queryRewriteAgent", rewriteResult)))
                 .thenReturn(ExecuteResult.success());
     }
 

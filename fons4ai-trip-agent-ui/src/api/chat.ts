@@ -80,7 +80,8 @@ async function streamTripRequest(
         break;
       case 'thinking':
         if (payload.content) {
-          onEvent({ event: 'thinking', data: JSON.stringify({ agentName: 'MasterAgent', text: payload.content }) });
+          const identity = payload.data as { agentName?: string } | undefined;
+          onEvent({ event: 'thinking', data: JSON.stringify({ agentName: identity?.agentName || 'MasterAgent', text: payload.content }) });
         }
         break;
       case 'error':

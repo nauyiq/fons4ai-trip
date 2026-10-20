@@ -2,6 +2,7 @@ package com.fons.cloud.ai.trip.agent.pipeline;
 
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
+import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
 import com.fons.cloud.ai.agent.observability.annotation.AgentObserved;
 import com.fons.cloud.ai.trip.agent.pipeline.support.MasterExecuteTaskStepHandler;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
@@ -120,10 +121,19 @@ public class AgentExecutePipeline {
      */
     @AgentObserved(name = "trip.pipeline", kind = AgentObserved.Kind.RUN)
     public ReactiveTaskRun<String, PipelineResult> run(AgentRequest request, ReactiveResultHandler<PipelineResult> handler) {
+        return run(request, handler, AgentPipelineExecuteContext.create(request));
+    }
+
+    /** 应用层保留同一执行上下文，仅在真实退出后读取异常/取消分段的已知结果。 */
+    @AgentObserved(name = "trip.pipeline", kind = AgentObserved.Kind.RUN)
+    public ReactiveTaskRun<String, PipelineResult> run(AgentRequest request, ReactiveResultHandler<PipelineResult> handler,
+                                                       AgentPipelineExecuteContext context) {
         // 业务身份由业务入口补齐，不交给观测生成；创建期完成以便任何采集阶段读取。
         normalizeRequest(request);
+        if (context == null || context.getUserInput() != request) {
+            throw SystemIntervalException.of("执行上下文必须对应本次Agent请求");
+        }
         return reactiveTaskRunFactory.create(scope -> Mono.defer(() -> {
-            AgentPipelineExecuteContext context = AgentPipelineExecuteContext.create(request);
             log.info("开始执行Agent管道，pipelineRunId:{}, agentRunId:{}, resume:{}", scope.runId(), request.getRunId(), request.getHitlRequestInfo() != null);
             return executeHandlers(context, scope).then(Mono.fromSupplier(() -> buildResult(scope, context)));
         }), handler);
@@ -181,7 +191,8 @@ public class AgentExecutePipeline {
                 scope.runId(),
                 context.getQueryRewriteResult(),
                 context.getRecognitionResult(),
-                masterAgentResult);
+                masterAgentResult,
+                context.executionSummary());
     }
 
     /**
@@ -196,6 +207,13 @@ public class AgentExecutePipeline {
             String pipelineRunId,
             String queryRewriteResult,
             IntentRecognitionResult recognitionResult,
-            AgentRunResult masterAgentResult) {
+            AgentRunResult masterAgentResult,
+            AgentExecutionSummary executionSummary) {
+        /** 保留既有调用方的四参数构造，未知摘要不冒充零。 */
+        public PipelineResult(String pipelineRunId, String queryRewriteResult, IntentRecognitionResult recognitionResult,
+                              AgentRunResult masterAgentResult) {
+            this(pipelineRunId, queryRewriteResult, recognitionResult, masterAgentResult,
+                    masterAgentResult == null ? null : masterAgentResult.getExecutionSummary());
+        }
     }
 }

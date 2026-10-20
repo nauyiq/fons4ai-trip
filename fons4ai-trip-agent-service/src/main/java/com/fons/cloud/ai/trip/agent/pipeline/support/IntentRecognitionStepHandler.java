@@ -1,11 +1,14 @@
 package com.fons.cloud.ai.trip.agent.pipeline.support;
 
+import com.fons.cloud.ai.trip.infrastructure.util.ExtractUtils;
+
+import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
+
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
 import com.fons.cloud.ai.agent.model.request.HitlRequestInfo;
-import com.fons.cloud.ai.agent.model.response.AgentResponse;
 import com.fons.cloud.ai.trip.agent.core.IntentRecognitionAgent;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
@@ -32,6 +35,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 意图识别步骤
@@ -86,9 +90,16 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
             }
         }
 
-        scope.events().emit(AgentResponse.thinking("正在识别你的差旅需求……").toJson());
+        emitAnalysis(scope, "intentRecognitionAgent", "正在识别你的差旅需求……");
         return Mono.fromSupplier(() -> buildIntentRecognitionInput(context))
-                .flatMap(intentRecognitionAgent::call)
+                .flatMap(message -> {
+                    context.intentRecognitionUsage(new AgentExecutionSummary.ModelCall(
+                            UUID.randomUUID().toString(), "intentRecognitionAgent", null, null, null, null, false));
+                    return intentRecognitionAgent.call(message).doOnNext(result -> {
+                        var usage = ExtractUtils.modelUsage(result);
+                        if (usage != null) context.intentRecognitionUsage(usage);
+                    });
+                })
                 .flatMap(msg -> handleAgentResult(context, scope, analysisRunId, msg));
     }
 
@@ -140,7 +151,7 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
         String summary = StringUtils.defaultIfBlank(
                 recognitionResult.getOverallReason(),
                 recognitionResult.getPrimary().getDescription());
-        scope.events().emit(AgentResponse.thinking(summary).toJson());
+        emitAnalysis(scope, "intentRecognitionAgent", summary);
         return Mono.just(ExecuteResult.success(AgentExecutionStep.EXECUTE_TASK_STEP));
     }
 

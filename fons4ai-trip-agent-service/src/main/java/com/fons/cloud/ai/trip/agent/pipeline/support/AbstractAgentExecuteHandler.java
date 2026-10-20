@@ -1,5 +1,11 @@
 package com.fons.cloud.ai.trip.agent.pipeline.support;
 
+import java.util.Map;
+
+import com.fons.cloud.ai.agent.model.message.MessageContentType;
+
+import com.fons.cloud.ai.agent.model.response.AgentResponse;
+
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.agent.model.request.AgentRequest;
 import com.fons.cloud.ai.agent.model.request.HitlRequestInfo;
@@ -25,6 +31,13 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public abstract class AbstractAgentExecuteHandler implements AgentExecuteHandler {
+
+    /** 分析步骤沿现有流协议发布，但携带真实步骤身份，避免显示成 Master 模型思考。 */
+    protected void emitAnalysis(ReactiveTaskScope<String> scope, String agentName, String text) {
+        scope.events().emit(AgentResponse.event(
+                MessageContentType.THINKING, text,
+                Map.of("agentName", agentName, "kind", "analysis")).toJson());
+    }
 
     @Override
     public final Mono<Void> handle(AgentPipelineExecuteContext request, ReactiveTaskScope<String> scope) {

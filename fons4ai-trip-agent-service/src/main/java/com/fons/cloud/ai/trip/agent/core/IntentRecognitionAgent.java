@@ -54,6 +54,7 @@ public class IntentRecognitionAgent extends AgentBase {
                         .name(TripAgent.INTENT_RECOGNITION_AGENT.getAgentName())
                         .role(MsgRole.ASSISTANT)
                         .content(TextBlock.builder().text(ExtractUtils.extractText(responses)).build())
+                        .metadata(ExtractUtils.usageMetadata(responses, getName(), model.getModelName()))
                         .build());
     }
 

@@ -26,6 +26,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
+import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -210,6 +211,33 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
         }
     }
 
+    /** 复用已经校验的业务 R 响应，仅提取白名单来源字段，不保存完整外部响应。 */
+    private ToolResultBlock withExecutionSource(String toolName, ToolResultBlock result, BusinessOutcome outcome) {
+        if (!outcome.success()) return result;
+        if (!Set.of("search_flights", "search_trains", "search_hotels", "search_hotel_rooms",
+                "query_weather", "query_destination_news").contains(toolName)) return result;
+        JSONObject value = JSON.parseObject(((TextBlock) result.getOutput().getFirst()).getText());
+        if (!(value.get("data") instanceof JSONObject data)) return result;
+        String provider = switch (toolName) {
+            case "search_flights", "search_trains", "search_hotels", "search_hotel_rooms" -> data.getString("provider");
+            case "query_weather" -> data.getString("source");
+            case "query_destination_news" -> Boolean.TRUE.equals(data.getBoolean("available")) ? data.getString("source") : null;
+            default -> null;
+        };
+        if (provider == null || provider.isBlank()) return result;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (result.getMetadata() != null) metadata.putAll(result.getMetadata());
+        metadata.put(AgentExecutionSummary.TOOL_PROVIDER, provider);
+        return new ToolResultBlock(result.getId(), result.getName(), result.getOutput(), metadata, result.getState());
+    }
+
+    /** 业务防重/失败预算短路不属于再次实际执行，保留原错误正文及状态。 */
+    private static ToolResultBlock skipped(String message) {
+        ToolResultBlock result = ToolResultBlock.error(message);
+        return new ToolResultBlock(result.getId(), result.getName(), result.getOutput(),
+                Map.of(AgentExecutionSummary.TOOL_EXECUTED, false), result.getState());
+    }
+
     /** 排序对象字段、去掉字符串外层空白，数组顺序及参数值类型保持不变。 */
     private String fingerprint(Map<String, Object> input) {
         return JSON.toJSONString(canonicalValue(input));
@@ -269,12 +297,12 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
                 RuntimeContext context = param.getRuntimeContext();
                 ExecutionLedger ledger = context == null ? null : context.get(ExecutionLedger.class);
                 if (ledger == null) {
-                    return Mono.just(ToolResultBlock.error("工具执行约束缺少本次运行上下文，未执行该工具。"));
+                    return Mono.just(skipped("工具执行约束缺少本次运行上下文，未执行该工具。"));
                 }
                 if (TODO_TOOL_NAME.equals(getName())) {
                     if (guard.closesTodoList(param.getInput()) && ledger.hasBlockingFailures()) {
                         // 在调用原生todo_write之前拒绝，因此原tasksContext完全保留。
-                        return Mono.just(ToolResultBlock.error("当前仍有未解决的必需业务工具失败，"
+                        return Mono.just(skipped("当前仍有未解决的必需业务工具失败，"
                                 + "不能清空任务清单或将全部任务标为completed。请保留未完成项，"
                                 + "按真实失败或部分完成结束本轮，而不是制造全部成功状态。"));
                     }
@@ -283,7 +311,7 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
                 CallKey key = new CallKey(getName(), guard.fingerprint(param.getInput()));
                 String rejection = ledger.rejection(key);
                 if (rejection != null) {
-                    return Mono.just(ToolResultBlock.error(rejection));
+                    return Mono.just(skipped(rejection));
                 }
                 // 不捕获异常，不自动重试，不转换暂停；由原生SDK执行这些职责。
                 return delegate.callAsync(param).map(result -> {
@@ -302,7 +330,7 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
                     if (result.getState() != ToolResultState.ERROR && result.getState() != ToolResultState.DENIED) {
                         ledger.succeeded(key);
                     }
-                    return result;
+                    return guard.withExecutionSource(getName(), result, outcome);
                 });
             });
         }

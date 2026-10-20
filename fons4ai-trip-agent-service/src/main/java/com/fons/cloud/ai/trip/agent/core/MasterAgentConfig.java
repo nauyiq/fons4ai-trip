@@ -25,6 +25,7 @@ import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.ToolkitConfig;
+import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tracing.OtelTracingMiddleware;
 import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -37,11 +38,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.stream.Collectors;
 
 /**
@@ -84,6 +87,27 @@ public class MasterAgentConfig {
 
     // == MCP清单 ==
     private final WeatherMcp weatherMcp;
+
+    /**
+     * 从三个实际 Toolkit 构建分类清单；内部文件、待办、委派工具不会因名称相似进入业务集合。
+     * MCP 使用已注册的真实工具名，避免配置白名单与 SDK 命名前缀不一致。
+     */
+    @Bean
+    public TripToolCatalog tripToolCatalog(@Qualifier("itineraryManageAgent") HarnessAgent itineraryManageAgent,
+                                          @Qualifier("itineraryPlanAgent") HarnessAgent itineraryPlanAgent,
+                                          @Qualifier("infoAgent") HarnessAgent infoAgent) {
+        Set<String> declared = Stream.of(bookingReadTools, travelOrderReadTools, travelOrderWriteTools,
+                        travelOrderConflictTools, userInfoReadTools, userInfoWriteTools, policyTools,
+                        itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools, destinationLiveTools, visaTools)
+                .flatMap(group -> group.tools().stream()).collect(Collectors.toSet());
+        Set<String> registered = Stream.of(itineraryManageAgent, itineraryPlanAgent, infoAgent)
+                .map(agent -> agent.getDelegate().getToolkit())
+                .flatMap(toolkit -> toolkit.getToolNames().stream()
+                        .filter(name -> declared.contains(name)
+                                || toolkit.getTool(name) instanceof ToolBase tool && tool.isMcp()))
+                .collect(Collectors.toUnmodifiableSet());
+        return new TripToolCatalog(registered);
+    }
 
     @Bean(name = "itineraryManageAgent")
     public HarnessAgent itineraryManageAgent() {

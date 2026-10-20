@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS `chat_request_trace` (
     `used_token`      BIGINT       DEFAULT NULL COMMENT '本次请求消耗的Token数',
     `analysis_content` LONGTEXT   DEFAULT NULL COMMENT '问题改写和意图识别结果JSON',
     `used_tools`      TEXT         DEFAULT NULL COMMENT '调用的工具名称，逗号分隔',
+    `execution_summary` JSON      DEFAULT NULL COMMENT '本次请求的模型用量、工具与任务执行摘要',
     `state`           VARCHAR(32)  NOT NULL DEFAULT 'init' COMMENT '状态：init/process/failed/interrupt/waiting_approval/success',
     `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
     PRIMARY KEY (`run_id`),
