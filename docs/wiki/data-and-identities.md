@@ -18,7 +18,7 @@ flowchart TB
     Runs --> Observed[JSONL / OTel / Langfuse]
 ```
 
-这是代码中的归属与关联示意，不是实际数据库外键或基数图，也不表示这些存储共享一个事务。数据库消息支持业务历史，SDK 状态支持原生续跑，Trace 解释发生过什么，三者用途不同。
+这是代码中的归属与关联示意，不是实际数据库外键或基数图，也不表示这些存储共享一个事务。业务消息与请求摘要支持会话历史，SDK 状态支持原生续跑，OTel/Langfuse 解释执行链路，三者用途不同。这里的 `chat_request_trace` 是业务表，不是观测平台 Trace 的存储副本。
 
 | 数据 | 当前保存入口 | 不能据此推断的内容 |
 | --- | --- | --- |
@@ -49,6 +49,24 @@ flowchart TB
 
 在工具中构造 `CandidateOwner` 时使用可信用户和 `TripRuntimeContext.conversationId(context)`。若根业务身份缺失，应该沿已有校验失败，不以当前 SDK `sessionId` 或 Langfuse session 临时补齐。
 
+## 消息与请求摘要字段
+
+下表描述当前代码与本次迁移的职责；JSON 内的关联字段不是数据库外键，完整处理顺序见 [会话保存与历史读取](conversation.md#两表保存与历史读取)。
+
+| 保存位置 | 保存内容与口径 |
+| --- | --- |
+| `chat_message.content` / `thinking` | 用户可见正文与本段实际 Master 思考；同 Run 的思考只使用一个消息载体，没有真实思考时不补造 |
+| `chat_message.extra.thinkingAgentName` | 思考来源身份；审批卡 `agent_name` 可以指向子 Agent，不能因此将 Master 思考归到子节点 |
+| `chat_message.extra.interactionKind` | `INPUT_REQUIRED` 的可信类型标记，供最后一条消息的待补充状态还原；用户通过底部聊天框回答，其他业务数据仍保留在同一 extra，不新增审批票证或数据库列 |
+| `chat_request_trace.analysis_content` | 改写结果、意图识别结果；应用的分析过程提示不作为模型思考保存 |
+| `chat_request_trace.used_tools` | 实际装配且真正执行的业务工具名称，按名称去重；待审批、拒绝及业务防重短路不算再次执行；内部委派/文件工具只保留在执行明细 |
+| `chat_request_trace.used_token` | 本分段可取得的模型输入与输出 Token 小计，缓存输入不再次累加；未知为 NULL，不能用零代替缺失 |
+| `execution_summary.modelCalls` / `toolCalls` | 按调用尝试保存身份、节点、用量或状态、执行标志与已知来源；不保存完整参数或供应商响应 |
+| `execution_summary.usageComplete` | 已知小计是否足以表示完整消耗；原生维护模型可能绕过事件时保守为 false，不把小计当总账 |
+| `execution_summary.originRunId` | 恢复 Run 对原业务 Run 的关联；恢复不修改旧分段用量，也不复制旧模型调用 |
+
+`execution_summary` 当前版本为 1。缺少或无法解析的历史摘要按未知处理，旧 `used_tools` 只作为历史工具记录展示；不将旧 `agent_spawn` 重新解释成业务工具。提供方来源只记录实际业务结果中有证据的标识，缺失时为空，不等于请求未发出或供应商调用次数为零。
+
 ## 条件更新与数据清理
 
 请求级摘要以 `chat_request_trace.run_id` 归属，不随审批恢复累计旧分段：恢复创建新 Run，用 `execution_summary.originRunId` 关联原请求。`execution_summary` 可空 JSON 列已由用户手动迁移并通过 MCP 核验；旧记录不回填。历史 API 先校验会话归属，再按本页 Run 批量关联，损坏/未知版本摘要按未知处理。当前工作树实现与尚待验收项见 [任务规划](../development/features/20261019-request-summary/任务规划.md)。
@@ -62,6 +80,8 @@ flowchart TB
 - [ChatConversation](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/entity/ChatConversation.java)、[ChatRequestTrace](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/entity/ChatRequestTrace.java)、[ChatMessageHitl](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/entity/ChatMessageHitl.java)：业务关联字段。
 - [TripRuntimeContext](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/infrastructure/agent/TripRuntimeContext.java)、[候选仓储](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/infrastructure/repository/ItineraryCandidateRepository.java)、[规划仓储](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/infrastructure/repository/ItineraryPlanRepository.java)：可信归属和保存。
 - [页面存储](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/infrastructure/repository/ItineraryPlanPageStore.java)、[会话领域服务](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/service/impl/ChatConversationDomainServiceImpl.java)：对象边界与条件更新。
-- [schema.sql](../../fons4ai-trip-agent-service/src/main/resources/db/schema.sql)、[批次迁移](../../fons4ai-trip-agent-service/src/main/resources/db/migration/20261014-batch-hitl.sql)、[恢复迁移](../../fons4ai-trip-agent-service/src/main/resources/db/migration/20261014-batch-hitl-replay.sql)：仓库 DDL 定义。本轮没有查询数据库或确认这些迁移已安装。
+- [schema.sql](../../fons4ai-trip-agent-service/src/main/resources/db/schema.sql)、[批次迁移](../../fons4ai-trip-agent-service/src/main/resources/db/migration/20261014-batch-hitl.sql)、[恢复迁移](../../fons4ai-trip-agent-service/src/main/resources/db/migration/20261014-batch-hitl-replay.sql)：仓库 DDL 定义，不据此认定测试库全部迁移均已核验。
+- [请求摘要迁移](../../fons4ai-trip-agent-service/src/main/resources/db/migration/20261019_request_execution_summary.sql)：用户已手动执行，2026-10-19/20 MySQL MCP 只读确认新增列为可空 JSON；此结论仅覆盖该列，不扩大为全部 SDK/业务表结构一致。知识维护不再次执行 DDL。
+- [ChatMessageAggregate](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/entity/ChatMessageAggregate.java)、[RequestTraceInfo](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/common/vo/RequestTraceInfo.java)：业务字段投影、版本与历史 JSON 容错。
 
 历史联调曾发现候选保存到 SDK 子会话的问题，当前源码已通过根身份适配修正相关读取路径；后续修改搜索、恢复或页面时仍要回查这些入口，不因已有修复而省略归属检查。

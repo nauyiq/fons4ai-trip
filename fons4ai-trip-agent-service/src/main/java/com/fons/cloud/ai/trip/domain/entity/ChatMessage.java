@@ -14,6 +14,7 @@ import com.fons.cloud.ai.agent.model.response.AgentMediaInfo;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
+import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.ai.trip.infrastructure.util.IdGenerator;
@@ -127,17 +128,29 @@ public class ChatMessage extends BaseEntity {
 
     /**
      * 执行确认退出后保存取消提示；这是业务终态消息，不是模型答复或可恢复的审批。
-     * Pipeline 身份用于前端核对本轮状态，避免历史取消提示覆盖后续请求的错误。
+     * Pipeline 身份用于前端核对本轮状态，避免历史提示覆盖后续请求的错误。
      */
     public static ChatMessage createCancellation(String conversationId, String runId, String pipelineRunId) {
+        return createExecutionNotice(conversationId, runId, pipelineRunId, "cancelled", "本次执行已取消。");
+    }
+
+    /** 保存安全的系统失败提示；异常详情留在服务端日志，不复制到聊天历史。 */
+    public static ChatMessage createFailure(String conversationId, String runId, String pipelineRunId) {
+        return createExecutionNotice(conversationId, runId, pipelineRunId, "failed",
+                TripAgentResultCode.CHAT_EXECUTION_FAILED.getMessage());
+    }
+
+    /** 终态提示与实时事件使用同一记录，刷新不会丢失或重复生成消息。 */
+    private static ChatMessage createExecutionNotice(String conversationId, String runId, String pipelineRunId,
+                                                      String runState, String content) {
         ChatMessage message = ChatMessage.builder()
                 .messageId(generateMessageId())
                 .conversationId(conversationId)
                 .runId(runId)
                 .role(ChatRole.SYSTEM)
                 .type(ChatMessageContentType.TEXT)
-                .content("本次执行已取消。")
-                .extra(JSON.toJSONString(Map.of("runState", "cancelled", "pipelineRunId", pipelineRunId)))
+                .content(content)
+                .extra(JSON.toJSONString(Map.of("runState", runState, "pipelineRunId", pipelineRunId)))
                 .deleted(false)
                 .build();
         // 实时事件与历史使用同一创建时间，不依赖客户端收到事件的时间。
@@ -206,28 +219,37 @@ public class ChatMessage extends BaseEntity {
     /**
      * 根据Agent运行结果创建多条信息补充消息
      * <pre>
-     *     审批消息只处理类型为INPUT_REQUIRED
+     *     信息补充按普通助手消息保存，不创建工具审批票证。
      * </pre>
      *
-     * @param result
-     * @return
+     * @param result 当前分段的权威结果
+     * @return 带持久化交互标记的信息补充消息
      */
     public static List<ChatMessage> createInputRequired(AgentRunResult result) {
-        List<HumanInTheLoopInfo> approvalInfos = result.getHumanInTheLoopInfos().stream().filter(hitl -> hitl.getKind() == HumanInTheLoopKind.INPUT_REQUIRED).toList();
-        Assert.notEmpty(approvalInfos, () -> SystemIntervalException.of("未发现信息补充消息， 无法创建Agent信息补充消息"));
+        List<HumanInTheLoopInfo> inputRequests = result.getHumanInTheLoopInfos().stream()
+                .filter(hitl -> hitl.getKind() == HumanInTheLoopKind.INPUT_REQUIRED).toList();
+        Assert.notEmpty(inputRequests, () -> SystemIntervalException.of("未发现信息补充消息， 无法创建Agent信息补充消息"));
 
-        return approvalInfos.stream().map(requiredInfo -> ChatMessage.builder()
-                .runId(result.getRunId())
-                .messageId(generateMessageId())
-                .conversationId(result.getConversationId())
-                .agentName(requiredInfo.getSourceAgent())
-                // 信息补充消息默认角色是AGENT, 因为不需要中断恢复
-                .role(ChatRole.AGENT)
-                .content(requiredInfo.getQuestion())
-                .extra(JSON.toJSONString(requiredInfo.getData()))
-                .type(ChatMessageContentType.TEXT)
-                .deleted(false)
-                .build()).toList();
+        return inputRequests.stream().map(requiredInfo -> {
+            JSONObject extra = new JSONObject();
+            if (requiredInfo.getData() != null) {
+                extra.putAll(requiredInfo.getData());
+            }
+            // 保存可信交互类型，历史读取无需根据正文或missingFields猜测是否仍需用户补充。
+            extra.put("interactionKind", HumanInTheLoopKind.INPUT_REQUIRED.name());
+            return ChatMessage.builder()
+                    .runId(result.getRunId())
+                    .messageId(generateMessageId())
+                    .conversationId(result.getConversationId())
+                    .agentName(requiredInfo.getSourceAgent())
+                    // 信息补充消息默认角色是AGENT, 因为不需要中断恢复
+                    .role(ChatRole.AGENT)
+                    .content(requiredInfo.getQuestion())
+                    .extra(extra.toJSONString())
+                    .type(ChatMessageContentType.TEXT)
+                    .deleted(false)
+                    .build();
+        }).toList();
     }
 
     /**

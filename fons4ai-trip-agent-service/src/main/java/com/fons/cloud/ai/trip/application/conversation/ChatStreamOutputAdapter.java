@@ -9,6 +9,7 @@ import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutePipeline;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.vo.MessageInfo;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
+import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.reactor.api.ReactiveTaskRun;
@@ -33,7 +34,7 @@ import java.util.Locale;
  * <p>终态事件的data包含conversationId、pipelineRunId、可用时的agentRunId、state和nextAction。
  * nextAction取值为none、input_required或approval；INPUT_REQUIRED对应的state仍为completed，
  * 信息补充放在humanInTheLoopInfos中，不表示审批暂停；审批暂停使用已持久化的
- * approvalMessages，并携带同批pauseId、pauseVersion及approvalReady；取消提示使用
+ * approvalMessages，并携带同批pauseId、pauseVersion及approvalReady；失败和取消提示使用
  * terminalMessages，与历史消息复用同一条持久化记录。</p>
  *
  * <p>state描述本轮Agent执行状态，不代表所有业务目标均已成功、审核通过或预订完成。
@@ -53,7 +54,7 @@ public class ChatStreamOutputAdapter {
     }
 
     /**
-     * 结果与实际退出分别确认；finalizedMessages 完成执行权交接后，返回持久化的审批或取消消息。
+     * 结果与实际退出分别确认；finalizedMessages 完成执行权交接后，返回持久化的审批或终态消息。
      * 正常、失败和取消路径共用这一个收尾入口；交接失败时不能宣告空闲或开放审批。
      */
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
@@ -140,10 +141,14 @@ public class ChatStreamOutputAdapter {
         } else if (!interactions.isEmpty()) {
             data.put("humanInTheLoopInfos", interactions);
         }
-        if (master.getState() == AgentRunState.CANCELLED) {
+        if (master.getState() == AgentRunState.CANCELLED || master.getState() == AgentRunState.FAILED) {
             data.put("terminalMessages", finalizedMessages);
         }
-        if (master.getState() != AgentRunState.COMPLETED
+        if (master.getState() == AgentRunState.FAILED) {
+            // 结构化失败与无结果异常使用同一安全文案，避免泄露 SDK / 供应商内部错误。
+            data.put("errorCode", TripAgentResultCode.CHAT_EXECUTION_FAILED.getCode());
+            data.put("errorMessage", TripAgentResultCode.CHAT_EXECUTION_FAILED.getMessage());
+        } else if (master.getState() != AgentRunState.COMPLETED
                 && master.getState() != AgentRunState.WAITING_APPROVAL) {
             if (master.getErrorCode() != null) {
                 data.put("errorCode", master.getErrorCode());
@@ -178,7 +183,8 @@ public class ChatStreamOutputAdapter {
             data.put("terminalMessages", terminalMessages);
         }
         if (!cancelled) {
-            data.put("errorMessage", "聊天请求执行失败");
+            data.put("errorCode", TripAgentResultCode.CHAT_EXECUTION_FAILED.getCode());
+            data.put("errorMessage", TripAgentResultCode.CHAT_EXECUTION_FAILED.getMessage());
         }
         return event("run_ended", data);
     }

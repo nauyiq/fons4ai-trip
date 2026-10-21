@@ -177,14 +177,10 @@ public class ConversationApplicationService {
                     }).subscribeOn(Schedulers.boundedElastic()).then(outcome.hasValue()
                             ? finalizeRunResult(aggregate, outcome.get(), context)
                             : Mono.fromCallable(() -> {
-                        if (run.state() == ReactiveTaskState.CANCELLED) {
-                            return finalizeCancelledRun(aggregate, pipelineRunId, context);
-                        }
-                        transactionTemplate.executeWithoutResult(status -> {
-                            saveFinalExecutionSummary(aggregate, context);
-                            clearConversationExecution(aggregate, pipelineRunId);
-                        });
-                        return List.<MessageInfo>of();
+                        // 前置分析等异常可能没有 Master 结果，仍需保存本轮明确的系统终态。
+                        AgentRunState state = run.state() == ReactiveTaskState.CANCELLED
+                                ? AgentRunState.CANCELLED : AgentRunState.FAILED;
+                        return finalizeUnsuccessfulRun(aggregate, pipelineRunId, context, state);
                     }).subscribeOn(Schedulers.boundedElastic())))
                     .cache();
             // 从退出信号开始观察，不会提前订阅 completion 启动任务；断线也完成取消落库和审批交接。
@@ -491,7 +487,7 @@ public class ConversationApplicationService {
                 .getTrace();
 
         // 失败、取消和拒绝结果不一定有 completeInfo，仍需独立持久化 Trace。
-        // 取消提示由实际退出后的 finalizeCancelledRun 保存，不能在这里只凭逻辑终态宣告结束。
+        // 失败和取消提示由实际退出后的收尾链保存，不能在这里只凭逻辑终态宣告结束。
         List<ChatMessage> chatMessages = switch (state) {
             case COMPLETED, WAITING_APPROVAL -> {
                 ChatConversation conversation = aggregate.getConversation();
@@ -563,7 +559,7 @@ public class ConversationApplicationService {
     }
 
     /**
-     * 在Pipeline结果和实际退出均确认后交接执行权，保存取消提示或将完整审批批次开放给客户端。
+     * 在Pipeline结果和实际退出均确认后交接执行权，保存终态提示或将完整审批批次开放给客户端。
      * 存储或交接失败时保留PREPARED，历史接口也不能提前展示这些卡片。
      */
     private Mono<List<MessageInfo>> finalizeRunResult(ChatMessageAggregate aggregate,
@@ -574,8 +570,8 @@ public class ConversationApplicationService {
                     String pipelineRunId = result.pipelineRunId();
                     // 调用方已等待实际退出及租约释放；这里完成数据库占用与审批状态交接。
                     AgentRunResult master = result.masterAgentResult();
-                    if (master.getState() == AgentRunState.CANCELLED) {
-                        return finalizeCancelledRun(aggregate, pipelineRunId, context);
+                    if (master.getState() == AgentRunState.CANCELLED || master.getState() == AgentRunState.FAILED) {
+                        return finalizeUnsuccessfulRun(aggregate, pipelineRunId, context, master.getState());
                     }
                     if (master.getState() != AgentRunState.WAITING_APPROVAL) {
                         transactionTemplate.executeWithoutResult(status -> {
@@ -611,19 +607,20 @@ public class ConversationApplicationService {
     }
 
     /**
-     * 两种取消路径统一落库：Pipeline 被取消而没有结果，或 Master 返回 CANCELLED。
+     * 失败和取消统一落库：Pipeline 异常退出而没有结果，或 Master 返回 FAILED / CANCELLED。
      * 调用方已等待 termination，并缓存整条收尾链；SSE 与后台观察者共用一次写入。
      */
-    private List<MessageInfo> finalizeCancelledRun(ChatMessageAggregate aggregate, String pipelineRunId,
-                                                   AgentPipelineExecuteContext context) {
+    private List<MessageInfo> finalizeUnsuccessfulRun(ChatMessageAggregate aggregate, String pipelineRunId,
+                                                       AgentPipelineExecuteContext context, AgentRunState state) {
         return transactionTemplate.execute(status -> {
             saveFinalExecutionSummary(aggregate, context);
-            // 同一事务交还数据库占用并保存提示，刷新不会看到空闲却没有取消结果的窗口。
+            // 同一事务交还数据库占用并保存提示，刷新不会看到空闲却没有执行结果的窗口。
             clearConversationExecution(aggregate, pipelineRunId);
-            ChatMessage message = ChatMessage.createCancellation(
-                    aggregate.getConversationId(), aggregate.gerRunId(), pipelineRunId);
+            ChatMessage message = state == AgentRunState.CANCELLED
+                    ? ChatMessage.createCancellation(aggregate.getConversationId(), aggregate.gerRunId(), pipelineRunId)
+                    : ChatMessage.createFailure(aggregate.getConversationId(), aggregate.gerRunId(), pipelineRunId);
             Assert.isTrue(chatMessageDomainService.save(message),
-                    () -> SystemIntervalException.of("保存取消消息失败"));
+                    () -> SystemIntervalException.of("保存执行终态消息失败"));
             return List.of(MessageInfo.builder()
                     .id(message.getMessageId()).role(message.getRole().getCode())
                     .runId(message.getRunId())

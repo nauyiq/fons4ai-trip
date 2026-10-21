@@ -1,6 +1,8 @@
 package com.fons.cloud.ai.trip.application.itinerary.reviewer;
 
 import com.alibaba.fastjson2.JSON;
+import com.fons.cloud.ai.trip.application.news.DestinationNewsQueryApplicationService;
+import com.fons.cloud.ai.trip.common.constants.DestinationNewsTopic;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewEvidenceSource;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewCoverageReason;
 import com.fons.cloud.ai.trip.common.dto.DestinationNewsQueryResult;
@@ -13,8 +15,8 @@ import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TripRequest;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
-import com.fons.cloud.ai.trip.infrastructure.client.DestinationNewsClient;
 import com.fons.cloud.ai.trip.infrastructure.client.WeatherClient;
+import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +45,7 @@ public class ItineraryReviewInputCollector {
     private static final int MAX_NEWS_PER_CITY = 3;
 
     private final WeatherClient weatherClient;
-    private final DestinationNewsClient destinationNewsClient;
+    private final DestinationNewsQueryApplicationService destinationNewsQueryApplicationService;
 
     public ItineraryReviewContext collect(ItineraryPlanningResult planningResult,
                                           ItineraryReviewContext baseContext) {
@@ -148,7 +150,8 @@ public class ItineraryReviewInputCollector {
         }
         for (String city : cities) {
             try {
-                DestinationNewsQueryResult result = destinationNewsClient.queryNews(city + " 交通");
+                // 审核只消费统一筛选后的交通资讯，不能绕过对话工具使用的城市/主题门槛。
+                DestinationNewsQueryResult result = destinationNewsQueryApplicationService.queryNews(city, DestinationNewsTopic.TRAFFIC);
                 if (!result.available()) {
                     coverageGaps.add(new ItineraryReviewCoverageGap(
                             ItineraryReviewCoverageReason.NEWS_NOT_CONFIGURED, city, null));
@@ -180,8 +183,9 @@ public class ItineraryReviewInputCollector {
                     coverageGaps.add(new ItineraryReviewCoverageGap(
                             ItineraryReviewCoverageReason.NEWS_METADATA_MISSING, city, null));
                 }
-            } catch (SystemIntervalException e) {
-                log.warn("[ItineraryReviewInputCollector] 交通资讯查询失败，city={}", city, e);
+            } catch (BusinessRuntimeException | SystemIntervalException e) {
+                // 资讯是可选事实：城市参数或供应商失败均形成覆盖缺口，不影响其他城市/维度收集。
+                log.warn("[ItineraryReviewInputCollector] 交通资讯查询失败，city={}, exceptionType={}", city, e.getClass().getSimpleName());
                 coverageGaps.add(new ItineraryReviewCoverageGap(
                         ItineraryReviewCoverageReason.NEWS_QUERY_FAILED, city, null));
             }

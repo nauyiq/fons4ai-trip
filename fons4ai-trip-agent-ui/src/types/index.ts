@@ -117,6 +117,8 @@ export interface PlanTask {
 
 /** Agent 主动提问（Human-in-the-Loop）交互定义 */
 export interface UserInteraction {
+  /** 信息补充使用底部聊天输入框；旧交互事件仍按其 ui_type 展示。 */
+  kind?: 'INPUT_REQUIRED';
   toolUseId: string;
   question: string;
   ui_type: string;

@@ -11,17 +11,17 @@ import lombok.Getter;
 public enum ModelType {
 
     /**
-     * 快速模型， 用于简单的任务
+     * 快速模型，用于简单任务；思考开关由对应模型配置决定。
      */
     FAST_MODEL("fastModel"),
 
     /**
-     * 不带思考的高效模型, 用于复杂任务推理等
+     * 高效模型，用于复杂任务；思考开关由对应模型配置决定。
      */
     STRONG_MODEL("strongModel"),
 
     /**
-     * 带思考的高效模型, 用于复杂任务推理等
+     * 推理模型角色；保留既有枚举名，具体思考参数由对应模型配置决定。
      */
     STRONG_THING_MODEL("strongThinkModel"),
 

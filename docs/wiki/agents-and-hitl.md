@@ -39,7 +39,11 @@ flowchart TB
 | 补充信息 `INPUT_REQUIRED` | Agent 当前分段结果 | 需要补充字段或用户选择；当前结果正常结束，不创建工具审批票证 |
 | 差旅审批 / 行程审核 | 差旅审批记录 / 方案审核服务 | 业务是否批准出差、方案是否可以推进，分别见业务专题 |
 
+补充信息统一由底部聊天框承接自然语言回答，不要求独立表单或固定日期格式；实时与刷新后的状态来源见 [会话交互](conversation.md#页面以什么判断状态)。Master 继续原子会话，业务子 Agent 结合可信时间上下文解析日期，不因用户使用相对日期就重新创建任务。
+
 ASK 由 `trip.agent.master.approval-required-tools` 配置，并只应用到子 Agent 实际具有的工具。默认集合为空；提示词要求“先确认”不能作为所有工具已经配置 ASK 的证据。新增工具应同时检查工具集、权限规则和业务失败保护的覆盖。
+
+2026-10-21 已在 InfoAgent、规划 Agent 及 Master 提示词增加许可描述边界：回复聚焦业务结果，缺少可信且归属具体调用的执行事实时不推断“无需审批/未触发审批/沿用旧批准”。工具成功、用户自然语言和子 Agent 的流程描述均不能替代真实审批记录；差旅单业务状态仍按可信结果说明。该变更是提示词约束，不是新的框架权限保证或审批历史查询能力。同日新会话完成首次News审批、同InfoAgent续问的新审批与恢复，两票证均消费，刷新保留，两个最终回复未再误述许可；该样本不保证模型今后绝无误述，无ASK等边界仍待验，见 [本轮任务](../development/features/20261021-news-quality-and-approval-narration/任务规划.md)。
 
 ## 为什么审批卡要等阶段结束
 
@@ -67,6 +71,10 @@ sequenceDiagram
 ```
 
 这是本地进程与共享状态的分段恢复路径，不要求将决定路由到原 JVM 中仍存活的子 Agent 对象。原生审批预检查发生在票证占用前；客户端决定动作，`hitlId`、原 Run 与其他恢复坐标来自服务端票证，不从客户端信任或重建。
+
+`WAITING_APPROVAL` 结束当前分段，也保留该分段已经产生的 `completeInfo` 与 `executionSummary`；等待审批不意味着清空已有思考或将其视为最终业务完成。Trip 在首条 TEXT 审批/助手消息保存一份 Master 思考，并用 `extra.thinkingAgentName` 区分思考来源和审批卡所属子 Agent；同批多张卡上方只展示一次。保存与刷新时序统一见 [请求摘要与模型思考](conversation.md#请求摘要与模型思考)。
+
+恢复创建新的业务 Run：旧分段保留分析和已知用量，新分段仅统计新增调用，通过 `execution_summary.originRunId` 关联旧分段。待批准查询不进入已执行业务工具集合，恢复后的实际查询才进入新 Run；字段口径见 [数据与身份](data-and-identities.md#消息与请求摘要字段)。
 
 ### 票证生命周期
 
@@ -101,4 +109,6 @@ stateDiagram-v2
 - [ConversationApplicationService](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/application/conversation/ConversationApplicationService.java)：`prepareReplay`、`persistReplay`、`finalizeRunResult` 与失败释放路径。
 - [ChatMessageHitl](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/domain/entity/ChatMessageHitl.java)、[状态枚举](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/common/constants/ChatMessageHitlStatus.java)、[审批卡](../../fons4ai-trip-agent-ui/src/components/ApprovalBatchCard.tsx)：可信票证、显示和提交。
 
-本轮核对实现与调用关系，未重新执行双审批、混合决定、重复提交、多节点恢复或取消恢复的完整验收；不要由某一历史成功场景推断全部边界已通过。
+2026-10-20 已完成两个只读查询的双审批一次提交与恢复、原分段/恢复分段统计隔离，以及审批前 Master 思考单载体和整页刷新验证。混合决定、重复提交、多节点恢复或取消恢复没有因此获得完整验收结论；具体场景与剩余边界见 [任务记录](../development/features/20261019-request-summary/任务规划.md)。
+
+同日补充了“首次审批完成后，通过agent_send续问同一个子会话，再次触发审批并恢复”的真实验收：新审批卡正常发布，使用新批次决定后执行业务查询，两轮票证均消费，刷新后结果保留。此前因SDK的send返回头缺少agent_id而触发的框架校验错误已完成此路径复验；具体会话、Run、产物身份和仍存在的回复流程误述见 [News联调记录](external-tools.md#新增或调整工具的阅读路线)。该结论不扩大为所有委派、拒绝或故障恢复分支均已验证。

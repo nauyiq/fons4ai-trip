@@ -37,6 +37,7 @@ public enum TripAgentResultCode implements Result {
     HITL_REQUEST_ID_ALREADY_USED("TA100022", "审批请求标识已经使用，请查询原批次状态，不能重复执行"),
     HITL_BATCH_RESUME_FAILED("TA100023", "本批恢复已失败或取消，需要人工处理，不能重复执行"),
     CONVERSATION_RUNNING("TA100024", "会话正在执行，请停止生成或等待执行结束后删除"),
+    CHAT_EXECUTION_FAILED("TA100025", "系统处理异常，本次请求执行失败，请稍后重试。"),
 
     TRAVEL_ORDER_STATUS_NOT_EXPECTED("TA200001", "差旅单状态不符合预期"),
     TRAVEL_ORDER_STATUS_NOT_SUPPORT_CANCEL("TA200002", "差旅单状态不支持取消"),

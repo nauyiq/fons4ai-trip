@@ -101,18 +101,35 @@ trip:
   model:
     configs:
      strong-model:
-       base-url: ${MODEL_BASE_URL}
+       protocol: OPENAI_CHAT_COMPLETIONS
+       # 可独立覆盖；默认从现有百炼服务根地址派生兼容接口地址。
+       base-url: ${MODEL_CHAT_BASE_URL:${MODEL_BASE_URL}/compatible-mode/v1}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.8-max
+       model-name: deepseek-v4.1-flash
+       message-format: DEEPSEEK
+       extra-body:
+         enable_thinking: true
      strong-thing-model:
-       base-url: ${MODEL_BASE_URL}
+       protocol: OPENAI_CHAT_COMPLETIONS
+       base-url: ${MODEL_CHAT_BASE_URL:${MODEL_BASE_URL}/compatible-mode/v1}
        api-key: ${MODEL_API_KEY}
-       model-name: qwen3.8-max
+       model-name: deepseek-v4.1-flash
+       message-format: DEEPSEEK
+       extra-body:
+         enable_thinking: true
      stable-model:
+       protocol: DASHSCOPE
        base-url: ${MODEL_BASE_URL}
        api-key: ${MODEL_API_KEY}
        model-name: glm-5.3
+       endpoint-type: TEXT
+       extra-body:
+         enable_thinking: true
      fast-model:
-       base-url: ${MODEL_BASE_URL}
+       protocol: OPENAI_CHAT_COMPLETIONS
+       base-url: ${MODEL_CHAT_BASE_URL:${MODEL_BASE_URL}/compatible-mode/v1}
        api-key: ${MODEL_API_KEY}
        model-name: deepseek-v4.1-flash
+       message-format: DEEPSEEK
+       extra-body:
+         enable_thinking: false

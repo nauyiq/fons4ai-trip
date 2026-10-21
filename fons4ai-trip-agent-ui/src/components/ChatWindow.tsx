@@ -27,9 +27,21 @@ function historyMessage(message: RemoteMessage): Message {
   };
 }
 
-/** 只核销同一次 Pipeline 的取消提示，历史记录不能掩盖新请求的错误。 */
-function isRunCancellation(message: Pick<RemoteMessage, 'role' | 'extra'>, pipelineRunId?: string): boolean {
-  return !!pipelineRunId && message.role === 'system' && message.extra?.runState === 'cancelled'
+/** 只恢复最后一条消息的待补充状态，用户通过底部聊天框自然回答。 */
+function historyInteraction(messages: RemoteMessage[]): UserInteraction | null {
+  const last = messages.at(-1);
+  if (last?.role !== 'agent' || last.extra?.interactionKind !== 'INPUT_REQUIRED' || !last.content.trim()) {
+    return null;
+  }
+  return { ...last.extra, kind: 'INPUT_REQUIRED', toolUseId: '', question: last.content, ui_type: 'text' };
+}
+
+/** 只核销同一次 Pipeline 的失败或取消提示，历史记录不能掩盖新请求的错误。 */
+function isRunTerminalMessage(message: Pick<RemoteMessage, 'role' | 'extra'>, pipelineRunId?: string,
+    state?: string): boolean {
+  return !!pipelineRunId && message.role === 'system'
+    && (message.extra?.runState === 'cancelled' || message.extra?.runState === 'failed')
+    && (!state || message.extra?.runState === state)
     && message.extra?.pipelineRunId === pipelineRunId;
 }
 
@@ -216,6 +228,16 @@ export default function ChatWindow() {
   const executionBlocked = executionState !== 'IDLE';
   const isStopping = interrupting || executionState === 'STOPPING';
   const canInterrupt = isThinking || executionState === 'RUNNING';
+  const awaitingInput = interaction?.kind === 'INPUT_REQUIRED';
+  // 信息补充允许普通聊天发送；只有旧的独立交互仍占用其专用回答入口。
+  const interactionBlocksComposer = !!interaction && !awaitingInput;
+
+  // 切换到已加载会话时恢复待补充状态，避免继承上一会话的临时交互。
+  useEffect(() => {
+    setInteraction(historyInteraction(messages));
+    // 历史请求返回后的同步由对应读取入口负责，不在流式消息变更时覆盖实时交互。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentConversationId]);
 
   /** 状态不明时保持禁用；不能用 finally 或连接结束推断后台已经退出。 */
   const syncExecution = async (conversationId: string) => {
@@ -251,8 +273,9 @@ export default function ChatWindow() {
           const rows = await fetchMessages(currentConversationId, controller.signal);
           if (!cancelled) {
             loadConversationMessages(currentConversationId, rows.map(historyMessage));
+            setInteraction(historyInteraction(rows));
             if (streamConversation.current === currentConversationId
-                && rows.some(row => isRunCancellation(row, streamPipelineRunId.current))) {
+                && rows.some(row => isRunTerminalMessage(row, streamPipelineRunId.current))) {
               setRunError(currentConversationId);
             }
             setApprovalSyncRequired(currentConversationId, false);
@@ -288,6 +311,7 @@ export default function ChatWindow() {
       .then((remoteMessages) => {
         if (cancelled) return;
         loadConversationMessages(currentConversationId, remoteMessages.map(historyMessage));
+        setInteraction(historyInteraction(remoteMessages));
         setApprovalSyncRequired(currentConversationId, false);
       })
       .catch((err) => {
@@ -344,8 +368,11 @@ export default function ChatWindow() {
       const rows = await fetchMessages(conversationId);
       const canonical = rows.map(historyMessage);
       loadConversationMessages(conversationId, canonical);
+      if (useChatStore.getState().currentConversationId === conversationId) {
+        setInteraction(historyInteraction(rows));
+      }
       if (streamConversation.current === conversationId
-          && rows.some(row => isRunCancellation(row, streamPipelineRunId.current))) {
+          && rows.some(row => isRunTerminalMessage(row, streamPipelineRunId.current))) {
         setRunError(conversationId);
       }
       // 历史已替代本轮临时消息，避免停止思考时再把旧进度快照到审批卡片之后。
@@ -397,15 +424,15 @@ export default function ChatWindow() {
         }
         if (result.nextAction === 'input_required') {
           const info = result.humanInTheLoopInfos?.find(item => item.kind === 'INPUT_REQUIRED');
-          if (info?.question) setInteraction({ ...info.data, toolUseId: '', question: info.question, ui_type: info.data?.ui_type || 'text' });
+          if (info?.question) setInteraction({ ...info.data, kind: 'INPUT_REQUIRED', toolUseId: '', question: info.question, ui_type: 'text' });
         }
         if (result.state && result.state !== 'completed' && result.state !== 'waiting_approval') {
-          const cancelledMessages = result.state === 'cancelled' && Array.isArray(result.terminalMessages)
+          const terminalMessages = Array.isArray(result.terminalMessages)
             ? result.terminalMessages.filter(message => typeof message.id === 'string' && message.id.length > 0
-              && isRunCancellation(message, result.pipelineRunId)) : [];
-          if (cancelledMessages.length > 0) {
-            // 与历史共用真实消息 ID；重复事件或刷新不再追加一条临时的取消消息。
-            upsertMessages(conversationId, cancelledMessages.map(message => historyMessage(mapTripMessage(message))));
+              && isRunTerminalMessage(message, result.pipelineRunId, result.state)) : [];
+          if (terminalMessages.length > 0) {
+            // 与历史共用真实消息 ID；重复事件或刷新不再追加临时终态消息，也不重复显示错误横幅。
+            upsertMessages(conversationId, terminalMessages.map(message => historyMessage(mapTripMessage(message))));
             setRunError(conversationId);
           } else {
             const existing = useChatStore.getState().conversations.find(item => item.id === conversationId)?.runError;
@@ -594,7 +621,7 @@ export default function ChatWindow() {
   const handleRespond = async (response: unknown) => {
     if (!interaction) return;
     const displayText = typeof response === 'string' ? response : JSON.stringify(response);
-    // INPUT_REQUIRED是普通补充消息，不通过工具审批恢复接口提交。
+    // 旧交互的回答也通过普通聊天发送，不通过工具审批恢复接口提交。
     setInteraction(null);
     await sendText(displayText, true);
   };
@@ -684,11 +711,13 @@ export default function ChatWindow() {
   };
 
   const sendText = async (content: string, inputResponse = false) => {
-    if (streamLock.current || isThinking || (interaction && !inputResponse) || historyPending || approvalBlocked || refreshing || executionBlocked) return;
+    if (streamLock.current || isThinking || (interactionBlocksComposer && !inputResponse) || historyPending || approvalBlocked || refreshing || executionBlocked) return;
     if (!content.trim()) return;
     streamLock.current = true;
     streamConversation.current = currentConversationId;
     streamPipelineRunId.current = '';
+    // 原样发送自然语言补充，由原子会话理解日期、地点或修正；不在前端拼装日期格式。
+    setInteraction(null);
 
     // 先把上一轮进度快照到上一条 agent 消息、清空 store，再追加本轮 user 消息。
     // 顺序不能反：若在追加 user 消息后再 snapshot，此时 messages 末尾是 user，
@@ -834,7 +863,7 @@ export default function ChatWindow() {
 
       {/* Message list */}
       <div className="message-list">
-        {currentConv?.runError && <div className="history-status" role="alert">本轮执行未完成：{currentConv.runError}</div>}
+        {currentConv?.runError && <div className="history-status" role="alert">{currentConv.runError}</div>}
         {executionError && <div className="history-status" role="alert">
           执行状态核对失败：{executionError}
           <button type="button" onClick={() => setExecutionRetry(n => n + 1)}>重新核对</button>
@@ -905,7 +934,7 @@ export default function ChatWindow() {
           <SuggestionChips questions={suggestedQuestions} onClick={sendText} />
         )}
 
-        {interaction && (
+        {interaction && !awaitingInput && (
           <div className="msg-row agent">
             <div className="msg-avatar agent-avatar">
               <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
@@ -930,7 +959,7 @@ export default function ChatWindow() {
 
       {/* Input area */}
       <div className="input-area">
-        <div className={`input-box${isThinking || executionBlocked || interaction || historyPending || approvalBlocked || refreshing ? ' disabled' : ''}`}>
+        <div className={`input-box${isThinking || executionBlocked || interactionBlocksComposer || historyPending || approvalBlocked || refreshing ? ' disabled' : ''}`}>
           <textarea
             ref={textareaRef}
             className="input-textarea"
@@ -947,21 +976,23 @@ export default function ChatWindow() {
                 ? 'AI 正在处理，请稍候...'
                 : approvalBlocked
                 ? '请先处理审批卡片；状态不明时请刷新会话'
-                : interaction
+                : awaitingInput
+                ? '在这里补充信息，可直接用自然语言描述'
+                : interactionBlocksComposer
                 ? '请先回答上方问题'
                 : '输入您的差旅需求，按 Enter 发送，Shift+Enter 换行'
             }
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isThinking || executionBlocked || !!interaction || historyPending || approvalBlocked || refreshing}
+            disabled={isThinking || executionBlocked || interactionBlocksComposer || historyPending || approvalBlocked || refreshing}
             rows={1}
           />
           <button
             className="send-btn"
             onClick={canInterrupt ? handleInterrupt : handleSend}
             disabled={isStopping || executionState === 'UNKNOWN' || historyPending || refreshing
-              || (!canInterrupt && (!!interaction || executionBlocked || approvalBlocked || !inputText.trim()))}
+              || (!canInterrupt && (interactionBlocksComposer || executionBlocked || approvalBlocked || !inputText.trim()))}
             title={isStopping ? '正在停止' : canInterrupt ? '停止生成' : '发送 (Enter)'}
           >
             {canInterrupt || isStopping ? (

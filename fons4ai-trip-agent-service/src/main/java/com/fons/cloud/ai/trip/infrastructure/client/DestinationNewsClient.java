@@ -28,7 +28,7 @@ import java.util.List;
 
 /**
  * 目的地资讯HTTP客户端，封装NewsData.io请求与协议转换，不依赖AgentScope。
- * 城市与业务主题的查询词组装、R封装和降级提示由工具层负责，不包含分页或自动重试。
+ * 城市/主题规则由查询应用服务负责，R封装和降级提示由工具层负责，不包含分页或自动重试。
  *
  * @author hongqy
  */
@@ -39,6 +39,9 @@ public class DestinationNewsClient {
     private static final String SOURCE = "newsdata.io";
     private static final String API_KEY_HEADER = "X-ACCESS-KEY";
     private static final String SUCCESS_STATUS = "success";
+    /** 检索字段互斥：只查标题及元信息；供应商去重不能替代业务层的基础去重。 */
+    private static final String QUERY_URI_TEMPLATE =
+            "/api/1/news?qInMeta={query}&language={language}&size={size}&removeduplicate=1";
     private static final int MIN_PAGE_SIZE = 1;
     private static final int MAX_PAGE_SIZE = 50;
 
@@ -83,7 +86,7 @@ public class DestinationNewsClient {
      * 使用上层已经组装好的关键词检索单页资讯，不解释traffic、safety等业务主题。
      * 无服务凭据返回available=false；正常无匹配返回available=true及空列表；请求或解析失败抛出系统异常。
      *
-     * @param query 查询词，例如“北京 交通”，首尾空格会去除，支持供应商查询表达式
+     * @param query 上层已组装的供应商表达式，首尾空格会去除；作为单个URI模板值编码
      * @return 具体资讯DTO，不包含凭据或原始响应
      */
     public DestinationNewsQueryResult queryNews(String query) {
@@ -93,13 +96,14 @@ public class DestinationNewsClient {
                 () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "资讯查询词长度不能超过" + maxQueryLength + "个字符"));
         if (apiKey.isEmpty()) {
             log.info("[DestinationNewsClient] 未配置资讯服务API Key，跳过请求");
-            return new DestinationNewsQueryResult(normalizedQuery, SOURCE, false, List.of());
+            return new DestinationNewsQueryResult(normalizedQuery, SOURCE, false, 0, List.of());
         }
 
         String body;
         try {
             // Key放入供应商支持的请求头，避免进入URL及URL观测日志。
-            body = restClient.get().uri("/api/1/news?q={query}&language={language}&size={size}", normalizedQuery, language, pageSize)
+            // 表达式作为单个变量传入，避免提前编码或直接拼接导致中文、引号和OR词组丢失。
+            body = restClient.get().uri(QUERY_URI_TEMPLATE, normalizedQuery, language, pageSize)
                     .header(API_KEY_HEADER, apiKey).accept(MediaType.APPLICATION_JSON).retrieve().body(String.class);
         } catch (RestClientResponseException e) {
             // 不回传远端错误正文，正文及底层异常可能包含凭据回显。
@@ -122,22 +126,12 @@ public class DestinationNewsClient {
         // 只有明确成功且结果数组存在，才能把空数组解释为没有匹配资讯。
         Assert.isTrue(response != null && response.results() != null,
                 () -> SystemIntervalException.of("资讯服务响应缺失结果数组"));
-        if (response != null) {
-            if (response.results() != null) {
-                Assert.isTrue(response.results().size() <= pageSize,
-                        () -> SystemIntervalException.of("资讯服务返回条数超出请求的单页上限"));
-            }
-        }
-        List<NewsArticle> news = null;
-        if (response != null) {
-            if (response.results() != null) {
-                news = response.results().stream().map(this::toNewsArticle).toList();
-            }
-        }
-        if (news != null) {
-            log.info("[DestinationNewsClient] 资讯查询完成，count={}", news.size());
-        }
-        return new DestinationNewsQueryResult(normalizedQuery, SOURCE, true, news);
+        Assert.isTrue(response.results().size() <= pageSize,
+                () -> SystemIntervalException.of("资讯服务返回条数超出请求的单页上限"));
+        List<NewsArticle> news = response.results().stream().map(this::toNewsArticle).toList();
+        // 数量在任何业务筛选之前固定，不使用供应商全量命中数冒充本页条数。
+        log.info("[DestinationNewsClient] 资讯查询完成，count={}", news.size());
+        return new DestinationNewsQueryResult(normalizedQuery, SOURCE, true, news.size(), news);
     }
 
     private NewsArticle toNewsArticle(Article article) {

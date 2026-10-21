@@ -1,10 +1,10 @@
 package com.fons.cloud.ai.trip.agent.tool;
 
+import com.fons.cloud.ai.trip.application.news.DestinationNewsQueryApplicationService;
 import com.fons.cloud.ai.trip.common.constants.DestinationNewsTopic;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.DestinationNewsQueryResult;
 import com.fons.cloud.ai.trip.common.dto.WeatherQueryResult;
-import com.fons.cloud.ai.trip.infrastructure.client.DestinationNewsClient;
 import com.fons.cloud.ai.trip.infrastructure.client.WeatherClient;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
@@ -31,7 +31,7 @@ public class DestinationLiveTools implements BaseTool {
     public static final List<String> TOOLS = List.of("query_weather", "query_destination_news");
 
     private final WeatherClient weatherClient;
-    private final DestinationNewsClient destinationNewsClient;
+    private final DestinationNewsQueryApplicationService destinationNewsQueryApplicationService;
 
     /**
      * 查询实时天气及指定日期预报；预报范围以供应商实际返回的数据为准。
@@ -77,12 +77,14 @@ public class DestinationLiveTools implements BaseTool {
     }
 
     /**
-     * 工具层将业务主题转换成中文关键词，Client 负责执行查询。
+     * 资讯查询委托统一应用服务，与行程审核复用相同的城市/主题门槛和基础去重。
      * 外层 SUCCESS 与资讯服务是否可用、是否有匹配结果分别表达。
      */
     @Tool(name = "query_destination_news", description = "按城市和主题查询目的地资讯，返回标题、摘要、原文链接及发布时间。"
-            + "SUCCESS 表示查询已完成；data.available=false 表示服务未配置，news 为空表示没有可用资讯，均不代表没有出行风险。"
-            + "结果为关键词匹配，使用前核对城市、发布时间及原文，不作为实时交通或航班状态。")
+            + "SUCCESS 表示调用完成；data.available=false 表示服务未配置且未请求，不能解释为无新闻。"
+            + "retrievedCount 是供应商本页原始返回数，news 是筛选和基础去重后的候选，均不是全网总数。"
+            + "候选仍需核对城市、发布时间及原文，空列表不代表没有出行风险，也不作为实时交通或航班状态。"
+            + "不因候选少而自动重复查询或放宽主题。")
     public R<DestinationNewsQueryResult> queryDestinationNews(
             @ToolParam(name = "city", description = "目的城市，必填，如上海；多城市分别调用") String city,
             @ToolParam(name = "topic", description = "主题：traffic交通、event活动、safety安全、flight航班、hotel酒店、policy政策、general综合；"
@@ -97,17 +99,19 @@ public class DestinationLiveTools implements BaseTool {
             return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "topic 仅支持 traffic、event、safety、flight、hotel、policy、general");
         }
 
-        String query = newsTopic == DestinationNewsTopic.GENERAL ? destinationCity
-                : destinationCity + " " + newsTopic.getQueryKeyword();
         try {
-            DestinationNewsQueryResult result = destinationNewsClient.queryNews(query);
+            // 传原始city，由应用服务校验后再规范化，避免提前trim吞掉非法控制字符。
+            DestinationNewsQueryResult result = destinationNewsQueryApplicationService.queryNews(city, newsTopic);
             String message;
             if (!result.available()) {
                 message = "目的地资讯服务未配置，暂无法提供资讯，不能据此判断没有出行风险。";
+            } else if (result.retrievedCount() == 0) {
+                message = "本次查询供应商本页返回0条资讯，不能据此判断没有相关资讯或出行风险。";
             } else if (result.news().isEmpty()) {
-                message = "本次查询没有匹配资讯，不能据此判断没有出行风险。";
+                message = "本页返回" + result.retrievedCount() + "条资讯，经城市/主题筛选及基础去重后无可用候选，不能据此判断没有出行风险。";
             } else {
-                message = "目的地资讯查询成功，请核对城市、发布时间及原文后使用。";
+                message = "本页返回" + result.retrievedCount() + "条资讯，筛选及基础去重后保留" + result.news().size()
+                        + "条候选；不是全网总数，请核对城市、发布时间及原文后使用。";
             }
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
         } catch (BusinessRuntimeException e) {
