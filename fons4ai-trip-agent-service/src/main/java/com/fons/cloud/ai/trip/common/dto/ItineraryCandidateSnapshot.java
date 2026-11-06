@@ -1,6 +1,8 @@
 package com.fons.cloud.ai.trip.common.dto;
 
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
+import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.result.ResultCode;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -30,6 +32,31 @@ public record ItineraryCandidateSnapshot(OffsetDateTime capturedAt,
                                          CandidatePoolSnapshot<TransportCandidate> inboundFlights,
                                          CandidatePoolSnapshot<TransportCandidate> inboundTrains,
                                          CandidatePoolSnapshot<HotelCandidate> hotels) {
+
+    /** 查找候选的供应商获取时间；仅在本次快照中存在该候选时返回。 */
+    public OffsetDateTime searchedAt(String candidateId) {
+        for (CandidatePoolSnapshot<?> pool : List.of(outboundFlights, outboundTrains, inboundFlights, inboundTrains, hotels)) {
+            OffsetDateTime searchedAt = pool.searchedAtByCandidateId().get(candidateId);
+            if (searchedAt != null) {
+                return searchedAt;
+            }
+        }
+        return null;
+    }
+
+    /** 按候选 ID 汇总查询时间；存在重复 ID 时不能把其中一个时间冒充另一条候选的时间。 */
+    public Map<String, OffsetDateTime> searchedAtByCandidateId() {
+        Set<String> duplicatedIds = duplicatedIds();
+        if (!duplicatedIds.isEmpty()) {
+            throw BusinessRuntimeException.of(ResultCode.INVALID_DATA.getCode(),
+                    "本次候选池包含重复候选ID：" + String.join(",", duplicatedIds));
+        }
+        Map<String, OffsetDateTime> searchedAt = new HashMap<>();
+        for (CandidatePoolSnapshot<?> pool : List.of(outboundFlights, outboundTrains, inboundFlights, inboundTrains, hotels)) {
+            searchedAt.putAll(pool.searchedAtByCandidateId());
+        }
+        return Map.copyOf(searchedAt);
+    }
 
     /** 汇集去程交通，仅供计算入口使用，是否可参与组合仍需校验。 */
     public List<TransportCandidate> outboundTransports() {

@@ -13,7 +13,8 @@ import java.util.List;
  * 交通按路线和日期分组，酒店额外区分入住日期、成人数和儿童年龄。
  * 城市只去除首尾空格，不擅自将不同城市名称认定为同一个城市。
  *
- * @param owner       可信数据归属
+ * @param userId      可信用户标识
+ * @param orderId     差旅单标识
  * @param type        FLIGHT、TRAIN或HOTEL
  * @param origin      交通出发城市或酒店城市
  * @param destination 交通到达城市，酒店为null
@@ -23,13 +24,16 @@ import java.util.List;
  * @param childAges   酒店儿童年龄，排序后保存；交通为空列表
  * @author hongqy
  */
-public record ItineraryCandidateScope(CandidateOwner owner, BookingType type, String origin,
+public record ItineraryCandidateScope(String userId, String orderId, BookingType type, String origin,
                                       String destination, LocalDate startDate, LocalDate endDate,
                                       Integer adultCount, List<Integer> childAges) {
 
     public ItineraryCandidateScope {
-        Assert.isTrue(owner != null && type != null && origin != null && !origin.isBlank() && startDate != null,
-                () -> parameterError("候选分组的归属、类型、城市和日期不能为空"));
+        Assert.isTrue(userId != null && !userId.isBlank() && orderId != null && !orderId.isBlank()
+                        && type != null && origin != null && !origin.isBlank() && startDate != null,
+                () -> parameterError("候选分组的用户、差旅单、类型、城市和日期无效"));
+        userId = userId.trim();
+        orderId = orderId.trim();
         origin = origin.trim();
         if (type == BookingType.HOTEL) {
             Assert.isTrue(destination == null && endDate != null && endDate.isAfter(startDate)
@@ -49,14 +53,14 @@ public record ItineraryCandidateScope(CandidateOwner owner, BookingType type, St
         }
     }
 
-    public static ItineraryCandidateScope transport(CandidateOwner owner, BookingType type,
+    public static ItineraryCandidateScope transport(String userId, String orderId, BookingType type,
                                                     String origin, String destination, LocalDate date) {
-        return new ItineraryCandidateScope(owner, type, origin, destination, date, null, null, List.of());
+        return new ItineraryCandidateScope(userId, orderId, type, origin, destination, date, null, null, List.of());
     }
 
-    public static ItineraryCandidateScope hotel(CandidateOwner owner, String city, LocalDate checkIn,
+    public static ItineraryCandidateScope hotel(String userId, String orderId, String city, LocalDate checkIn,
                                                 LocalDate checkOut, int adultCount, List<Integer> childAges) {
-        return new ItineraryCandidateScope(owner, BookingType.HOTEL, city, null, checkIn, checkOut, adultCount, childAges);
+        return new ItineraryCandidateScope(userId, orderId, BookingType.HOTEL, city, null, checkIn, checkOut, adultCount, childAges);
     }
 
     private static BusinessRuntimeException parameterError(String message) {

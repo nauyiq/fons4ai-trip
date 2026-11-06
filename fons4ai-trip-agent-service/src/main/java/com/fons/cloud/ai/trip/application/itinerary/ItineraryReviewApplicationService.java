@@ -4,7 +4,6 @@ import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryReviewInputCollector;
 import com.fons.cloud.ai.trip.application.itinerary.reviewer.ItineraryReviewOrchestrator;
 import com.fons.cloud.ai.trip.application.itinerary.validator.ItineraryRepairCycleValidatorService;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.ItineraryRepairCycle;
 import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
@@ -50,25 +49,34 @@ public class ItineraryReviewApplicationService {
      * <p>关联差旅单时，只使用本次按用户重新查询的当前状态参与审核；规划内保存的差旅单快照
      * 仅用于确认原始关联关系。差旅单不存在或当前数据不完整时，审核结果会明确标记为未完成。
      *
-     * @param owner 可信用户和会话归属
+     * @param userId 可信用户标识
+     * @param orderId 差旅单标识
+     * @param conversationId 根会话标识
      * @param planId 已保存的规划结果标识
      * @param runId 运行时提供的本轮标识
      * @return 结构化审核结果；规划不存在时返回null
      */
-    public ItineraryReviewResult review(CandidateOwner owner, String planId, String runId) {
+    public ItineraryReviewResult review(String userId, String orderId, String conversationId, String planId, String runId) {
         // 1. 校验可信归属和规划标识，只读取当前用户、当前会话的已保存方案
-        Assert.notNull(owner, () -> parameterError("审核归属不能为空"));
+        Assert.isTrue(StringUtils.isNoneBlank(userId, orderId, conversationId),
+                () -> parameterError("用户、差旅单和会话标识不能为空"));
+        // 模型传入单号只作为查询条件，必须先校验当前用户拥有该单。
+        Assert.notNull(travelOrderDomainService.findByOrderIdAndUserId(orderId, userId),
+                () -> parameterError("未找到当前用户的差旅单"));
         Assert.notBlank(planId, () -> parameterError("planId不能为空"));
         String normalizedPlanId = planId.trim();
 
-        ItineraryPlanningResult planningResult = planRepository.findById(owner, normalizedPlanId);
+        ItineraryPlanningResult planningResult = planRepository.findById(userId, orderId, conversationId, normalizedPlanId);
         if (planningResult == null) {
             return null;
         }
-        repairCycleService.beforeReview(owner, normalizedPlanId, runId);
+        Assert.isTrue(planningResult.getSourceTravelOrder() != null
+                        && orderId.equals(planningResult.getSourceTravelOrder().orderId()),
+                () -> parameterError("方案与差旅单不匹配"));
+        repairCycleService.beforeReview(userId, orderId, conversationId, normalizedPlanId, runId);
 
         // 2. 重新查询关联差旅单的当前状态，不把规划时的快照直接作为审核事实
-        TravelOrderReference currentTravelOrder = loadCurrentTravelOrder(owner, planningResult);
+        TravelOrderReference currentTravelOrder = loadCurrentTravelOrder(userId, planningResult);
         // 3. 汇集方案、偏好及外部事实，记录无法获取的审核信息
         ItineraryReviewContext context = inputCollector.collect(planningResult,
                 ItineraryReviewContext.now(currentTravelOrder));
@@ -76,18 +84,18 @@ public class ItineraryReviewApplicationService {
         ItineraryReviewResult result = reviewOrchestrator.review(planningResult, context);
         // 5. 应用修复和审核重试上限，确定本轮真实可执行的下一步动作
         ItineraryRepairCycle resolvedCycle = repairCycleService.resolveAfterReview(
-                owner, planningResult, runId, result);
+                userId, orderId, conversationId, planningResult, runId, result);
         // 6. 先保存最终审核报告，再提交修复状态；报告保存失败不能推进流程
-        reviewRepository.saveLatest(owner, result);
-        repairCycleService.saveResolvedReview(owner, resolvedCycle);
+        reviewRepository.saveLatest(userId, orderId, conversationId, result);
+        repairCycleService.saveResolvedReview(userId, orderId, conversationId, resolvedCycle);
         log.info("[ItineraryReviewApplicationService] 行程规划审核完成，userId={}, conversationId={}, "
                         + "planId={}, reviewId={}, executionStatus={}, verdict={}, nextAction={}",
-                owner.userId(), owner.conversationId(), normalizedPlanId, result.getReviewId(),
+                userId, conversationId, normalizedPlanId, result.getReviewId(),
                 result.getExecutionStatus(), result.getVerdict(), result.getNextAction());
         return result;
     }
 
-    private TravelOrderReference loadCurrentTravelOrder(CandidateOwner owner,
+    private TravelOrderReference loadCurrentTravelOrder(String userId,
                                                         ItineraryPlanningResult planningResult) {
         TravelOrderReference sourceTravelOrder = planningResult.getSourceTravelOrder();
         if (sourceTravelOrder == null || StringUtils.isBlank(sourceTravelOrder.orderId())) {
@@ -95,10 +103,10 @@ public class ItineraryReviewApplicationService {
         }
 
         TravelOrder order = travelOrderDomainService.findByOrderIdAndUserId(
-                sourceTravelOrder.orderId(), owner.userId());
+                sourceTravelOrder.orderId(), userId);
         if (order == null) {
             log.warn("[ItineraryReviewApplicationService] 规划关联的差旅单不存在，userId={}, planId={}, orderId={}",
-                    owner.userId(), planningResult.getPlanId(), sourceTravelOrder.orderId());
+                    userId, planningResult.getPlanId(), sourceTravelOrder.orderId());
             return null;
         }
         return new TravelOrderReference(StringUtils.trimToNull(order.getOrderId()),

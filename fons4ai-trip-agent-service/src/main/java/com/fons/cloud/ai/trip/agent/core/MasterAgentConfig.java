@@ -19,9 +19,14 @@ import com.fons.cloud.ai.trip.infrastructure.util.ModelFacade;
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripTimeContextMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.middleware.TripToolExecutionGuardMiddleware;
 import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
+import com.fons.cloud.common.exception.ExceptionCode;
+import com.fons.cloud.common.exception.ExceptionType;
+import com.fons.cloud.common.exception.SystemIntervalException;
+import com.fons.cloud.common.result.ResultCode;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
+import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.ToolkitConfig;
@@ -43,6 +48,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import java.util.stream.Collectors;
@@ -57,9 +66,31 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @EnableConfigurationProperties(MasterAgentConfigProperties.class)
 public class MasterAgentConfig {
+
+    /** Agent 配置异常所属模块。 */
+    private static final String EXCEPTION_MODULE = "TRIP";
+
+    /**
+     * 关键业务写操作逐次 ASK，配置只能收紧为 DENY。
+     */
+    private static final Set<String> REQUIRED_APPROVAL_TOOLS = Set.of("submit_travel_approval", "modify_travel_order",
+            "cancel_travel_order", "update_user_contact_info", "update_user_base_location", "create_itinerary_plan_page");
+    /**
+     * SDK 2.0.3 的记忆、协调与只读文件工具；显式 ALLOW，不依赖“未列入 ASK”。
+     */
+    private static final Set<String> NATIVE_ALLOWED_TOOLS = Set.of("memory_save", "memory_get", "memory_search",
+            "agent_spawn", "agent_send", "agent_list", "task_list", "task_output", "task_cancel", "wait_async_results",
+            "todo_write", "read_file", "grep_files", "glob_files", "list_files");
+    /**
+     * 业务不开放通用命令与任意文件修改，原生记忆内部 I/O 不受该工具名单影响。
+     */
+    private static final Set<String> DENIED_TOOLS = Set.of("execute", "shell", "bash", "execute_command", "run_command",
+            "file_write", "file_edit", "file_append", "file_delete", "write_file", "edit_file", "execute_python");
+
     private final MasterAgentConfigProperties properties;
     private final DistributedStore distributedStore;
     private final AgentTaskManager agentTaskManager;
+    private final UserPreferenceTools userPreferenceTools;
 
     // == middleware ==
     // 这里表示启用框架层提供的可观测性，配置文件里面一定要有sys.agent.observability的配置
@@ -94,11 +125,12 @@ public class MasterAgentConfig {
      */
     @Bean
     public TripToolCatalog tripToolCatalog(@Qualifier("itineraryManageAgent") HarnessAgent itineraryManageAgent,
-                                          @Qualifier("itineraryPlanAgent") HarnessAgent itineraryPlanAgent,
-                                          @Qualifier("infoAgent") HarnessAgent infoAgent) {
+                                           @Qualifier("itineraryPlanAgent") HarnessAgent itineraryPlanAgent,
+                                           @Qualifier("infoAgent") HarnessAgent infoAgent) {
         Set<String> declared = Stream.of(bookingReadTools, travelOrderReadTools, travelOrderWriteTools,
                         travelOrderConflictTools, userInfoReadTools, userInfoWriteTools, policyTools,
-                        itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools, destinationLiveTools, visaTools)
+                        itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools, destinationLiveTools, visaTools,
+                        userPreferenceTools)
                 .flatMap(group -> group.tools().stream()).collect(Collectors.toSet());
         Set<String> registered = Stream.of(itineraryManageAgent, itineraryPlanAgent, infoAgent)
                 .map(agent -> agent.getDelegate().getToolkit())
@@ -106,6 +138,8 @@ public class MasterAgentConfig {
                         .filter(name -> declared.contains(name)
                                 || toolkit.getTool(name) instanceof ToolBase tool && tool.isMcp()))
                 .collect(Collectors.toUnmodifiableSet());
+        validatePermissionConfiguration(Stream.of(itineraryManageAgent, itineraryPlanAgent, infoAgent)
+                .flatMap(agent -> agent.getToolkit().getToolNames().stream()).collect(Collectors.toSet()), declared);
         return new TripToolCatalog(registered);
     }
 
@@ -120,13 +154,14 @@ public class MasterAgentConfig {
         toolkit.registerTool(travelOrderConflictTools);
         toolkit.registerTool(userInfoReadTools);
         toolkit.registerTool(userInfoWriteTools);
+        registerPreferences(toolkit, true);
         // 子AGENT构建
         HarnessAgent itineraryManageAgent = childBuilder(toolkit)
                 .name(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName())
                 .description(TripAgent.ITINERARY_MANAGE_AGENT.getDescription())
-                .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-manage-agent-system.md"))
+                .sysPrompt(systemPrompt("prompt/itinerary-manage-agent-system.md"))
                 .middleware(businessToolGuard(Set.of(), bookingReadTools, travelOrderReadTools,
-                        travelOrderWriteTools, travelOrderConflictTools, userInfoReadTools, userInfoWriteTools))
+                        travelOrderWriteTools, travelOrderConflictTools, userInfoReadTools, userInfoWriteTools, userPreferenceTools))
                 .disableSubagents()
                 .build();
         log.info("[MasterAgent] 行程管理子Agent创建成功...");
@@ -147,6 +182,7 @@ public class MasterAgentConfig {
         toolkit.registerTool(itinerarySearchTools);
         toolkit.registerTool(itineraryPlannerTools);
         toolkit.registerTool(itineraryPlanReadTools);
+        registerPreferences(toolkit, false);
         if (weatherMcp.getMcpClient() != null) {
             toolkit.registration().mcpClient(weatherMcp.getMcpClient())
                     .enableTools(weatherMcp.getEnabledTools())
@@ -157,12 +193,12 @@ public class MasterAgentConfig {
         HarnessAgent itineraryPlanAgent = childBuilder(toolkit)
                 .name(TripAgent.ITINERARY_PLAN_AGENT.getAgentName())
                 .description(TripAgent.ITINERARY_PLAN_AGENT.getDescription())
-                .sysPrompt(PromptLoader.loadRequired("prompt/itinerary-plan-agent-system.md"))
+                .sysPrompt(systemPrompt("prompt/itinerary-plan-agent-system.md"))
                 .enableTaskList(true)
                 // 天气和目的地资讯属于可选补充，其失败不能把已完成的核心规划永久阻塞。
                 .middleware(businessToolGuard(Set.copyOf(DestinationLiveTools.TOOLS), bookingReadTools,
                         userInfoReadTools, userInfoWriteTools, travelOrderReadTools, destinationLiveTools,
-                        policyTools, itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools))
+                        policyTools, itinerarySearchTools, itineraryPlannerTools, itineraryPlanReadTools, userPreferenceTools))
                 .disableSubagents()
                 .build();
         log.info("[MasterAgent] 行程规划子Agent创建成功...");
@@ -176,6 +212,7 @@ public class MasterAgentConfig {
         toolkit.registerTool(policyTools);
         toolkit.registerTool(destinationLiveTools);
         toolkit.registerTool(visaTools);
+        registerPreferences(toolkit, false);
         if (weatherMcp.getMcpClient() != null) {
             toolkit.registration().mcpClient(weatherMcp.getMcpClient())
                     .enableTools(weatherMcp.getEnabledTools())
@@ -184,8 +221,8 @@ public class MasterAgentConfig {
         HarnessAgent infoAgent = childBuilder(toolkit)
                 .name(TripAgent.INFO_AGENT.getAgentName())
                 .description(TripAgent.INFO_AGENT.getDescription())
-                .sysPrompt(PromptLoader.loadRequired("prompt/info-agent-system.md"))
-                .middleware(businessToolGuard(Set.of(), policyTools, destinationLiveTools, visaTools))
+                .sysPrompt(systemPrompt("prompt/info-agent-system.md"))
+                .middleware(businessToolGuard(Set.of(), policyTools, destinationLiveTools, visaTools, userPreferenceTools))
                 .disableSubagents()
                 .build();
         log.info("[MasterAgent] 信息查询子Agent创建成功...");
@@ -196,12 +233,16 @@ public class MasterAgentConfig {
     public Agent masterAgent(HarnessAgent itineraryManageAgent,
                              HarnessAgent itineraryPlanAgent,
                              HarnessAgent infoAgent) {
+        Toolkit masterToolkit = new Toolkit(ToolkitConfig.builder().parallel(false).build());
+        registerPreferences(masterToolkit, true);
         HarnessAgent.Builder masterBuilder = commonBuilder()
                 .name(TripAgent.MASTER_AGENT.getAgentName())
-                .sysPrompt(PromptLoader.loadRequired("prompt/master_agent_sys_prompt.md"))
+                .sysPrompt(systemPrompt("prompt/master_agent_sys_prompt.md"))
                 .middleware(analysisAgentMiddleware)
+                .middleware(businessToolGuard(Set.of(), userPreferenceTools))
                 // 即使模型一次返回多个调用，也按顺序执行；子Agent仍使用各自的Toolkit。
-                .toolkit(new Toolkit(ToolkitConfig.builder().parallel(false).build()));
+                .toolkit(masterToolkit)
+                .permissionContext(nativePermissions(masterToolkit));
 
         // 配置行程管理子Agent
         masterBuilder.subagentFactory(TripAgent.ITINERARY_MANAGE_AGENT.getAgentName(), TripAgent.ITINERARY_MANAGE_AGENT.getDescription(),
@@ -255,19 +296,102 @@ public class MasterAgentConfig {
         HarnessAgent.Builder builder = commonBuilder().toolkit(toolkit)
                 .middleware(AgentScopeExecutionLifecycleMiddleware.getInstance())
                 .middleware(AgentScopeApprovalRejectMiddleware.getInstance());
-        var askTools = properties.getApprovalRequiredTools().stream()
-                .filter(name -> toolkit.getTool(name) != null)
-                .sorted().toList();
-        if (!askTools.isEmpty()) {
-            PermissionContextState.Builder permissions = PermissionContextState.builder();
-            // 每个子Agent只接收自己实际拥有的工具规则；委派工具不进入业务审批清单。
-            for (String name : askTools) {
-                permissions.addAskRule(name, new PermissionRule(name, null, PermissionBehavior.ASK,
-                        "业务配置要求执行前人工确认"));
+        // 与原 ASK 配置一样，只装配 SDK 的初始规则；旧会话继续由 SDK 恢复自身许可状态。
+        return builder.permissionContext(nativePermissions(toolkit));
+    }
+
+    /**
+     * 在 Trip 装配固定原生规则，不增加框架策略提供者或运行期替换。
+     * Toolkit 中的业务工具按实际注册情况处理；构建后才加入的原生工具使用明确的基础名单。
+     */
+    private PermissionContextState nativePermissions(Toolkit toolkit) {
+        Map<String, PermissionBehavior> rules = new HashMap<>();
+        toolkit.getToolNames().forEach(name -> rules.put(name, PermissionBehavior.ASK));
+        Stream.of(BookingReadTools.TOOLS, TravelOrderReadTools.TOOLS, TravelOrderConflictTools.TOOLS,
+                        UserInfoReadTools.TOOLS, PolicyTools.TOOLS, ItinerarySearchTools.TOOLS,
+                        ItineraryPlanReadTools.TOOLS, DestinationLiveTools.TOOLS, VisaTools.TOOLS,
+                        UserPreferenceTools.TOOLS, List.of("plan_itinerary", "review_itinerary_plan"))
+                .flatMap(List::stream).filter(name -> toolkit.getTool(name) != null)
+                .forEach(name -> rules.put(name, PermissionBehavior.ALLOW));
+        NATIVE_ALLOWED_TOOLS.forEach(name -> {
+            var tool = toolkit.getTool(name);
+            if (!(tool instanceof ToolBase nativeTool) || !nativeTool.isMcp()) {
+                rules.put(name, PermissionBehavior.ALLOW);
             }
-            builder.permissionContext(permissions.build());
+        });
+        for (String name : weatherMcp.getEnabledTools()) {
+            if (toolkit.getTool(name) instanceof ToolBase tool && tool.isMcp()
+                    && "weather-mcp".equals(tool.getMcpName())) {
+                rules.put(name, PermissionBehavior.ALLOW);
+            }
         }
-        return builder;
+        REQUIRED_APPROVAL_TOOLS.stream().filter(name -> toolkit.getTool(name) != null)
+                .forEach(name -> rules.put(name, PermissionBehavior.ASK));
+        DENIED_TOOLS.forEach(name -> rules.put(name, PermissionBehavior.DENY));
+        configuredPermissions().forEach((name, behavior) -> {
+            if (rules.containsKey(name)) {
+                rules.put(name, behavior);
+            }
+        });
+        PermissionContextState.Builder permissions = PermissionContextState.builder().mode(PermissionMode.DEFAULT);
+        rules.forEach((name, behavior) -> {
+            PermissionRule rule = new PermissionRule(name, null, behavior, "Trip 原生工具许可配置");
+            switch (behavior) {
+                case ALLOW -> permissions.addAllowRule(name, rule);
+                case ASK -> permissions.addAskRule(name, rule);
+                case DENY -> permissions.addDenyRule(name, rule);
+                default -> throw configurationError("工具许可只支持 ALLOW、ASK、DENY：" + name
+                        + "，实际值：" + behavior);
+            }
+        });
+        return permissions.build();
+    }
+
+    /**
+     * 旧 ASK 名单仍是原入口；可选三态覆盖直接转成 SDK 规则，冲突或放宽强制规则则拒绝启动。
+     */
+    private Map<String, PermissionBehavior> configuredPermissions() {
+        Map<String, PermissionBehavior> configured = new HashMap<>(properties.getToolPermissions().getOverrides());
+        for (String name : properties.getApprovalRequiredTools()) {
+            if (configured.containsKey(name) && configured.get(name) != PermissionBehavior.ASK) {
+                throw configurationError("工具许可与旧 ASK 名单冲突：" + name);
+            }
+            configured.put(name, PermissionBehavior.ASK);
+        }
+        configured.forEach((name, behavior) -> {
+            // SDK 还提供 PASSTHROUGH，Trip 的固定配置只允许明确三态，不能静默落回默认行为。
+            if (behavior != PermissionBehavior.ALLOW
+                    && behavior != PermissionBehavior.ASK
+                    && behavior != PermissionBehavior.DENY) {
+                throw configurationError("工具许可只支持 ALLOW、ASK、DENY：" + name);
+            }
+            if ((REQUIRED_APPROVAL_TOOLS.contains(name) && behavior == PermissionBehavior.ALLOW)
+                    || (DENIED_TOOLS.contains(name) && behavior != PermissionBehavior.DENY)) {
+                throw configurationError("不能降低业务强制工具许可：" + name);
+            }
+        });
+        return configured;
+    }
+
+    private void validatePermissionConfiguration(Set<String> registered, Set<String> declaredBusiness) {
+        Set<String> knownNative = new HashSet<>(NATIVE_ALLOWED_TOOLS);
+        knownNative.addAll(DENIED_TOOLS);
+        for (String name : configuredPermissions().keySet()) {
+            if (registered.contains(name) || knownNative.contains(name)) {
+                continue;
+            }
+            if (declaredBusiness.contains(name)) {
+                log.warn("工具许可声明当前未装配的可选工具：{}", name);
+            } else {
+                throw configurationError("工具许可配置引用未知工具：" + name);
+            }
+        }
+    }
+
+    /** 将工具许可配置错误统一标识为内部配置失败。 */
+    private static SystemIntervalException configurationError(String message) {
+        return new SystemIntervalException(ExceptionCode.of(ResultCode.SYSTEM_INTERVAL_ERROR.getCode(),
+                message, ExceptionType.SYSTEM, EXCEPTION_MODULE));
     }
 
     private HarnessAgent.Builder commonBuilder() {
@@ -316,5 +440,18 @@ public class MasterAgentConfig {
         return builder;
     }
 
+    /**
+     * 信息与规划节点只开放读取，防止它们在计划推断中直接修改用户默认。
+     */
+    private void registerPreferences(Toolkit toolkit, boolean writable) {
+        toolkit.registerTool(userPreferenceTools);
+        if (!writable) {
+            toolkit.removeTool(UserPreferenceTools.UPDATE);
+        }
+    }
 
+    private String systemPrompt(String path) {
+        // 组合静态业务规则；用户的实际偏好仍由查询工具读取，不在这里加载数据。
+        return PromptLoader.loadRequired(path) + "\n\n" + PromptLoader.loadRequired("prompt/travel-preferences.md");
+    }
 }

@@ -6,6 +6,8 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.Set;
+import java.util.Map;
+import io.agentscope.core.permission.PermissionBehavior;
 
 /**
  * @author hongqy
@@ -56,6 +58,16 @@ public class MasterAgentConfigProperties {
      * 子Agent执行前需要人工确认的业务工具名，默认不额外配置ASK规则。
      */
     private Set<String> approvalRequiredTools = Set.of();
+
+    /** Trip 构建 Agent 时装配的原生固定许可；不在运行/恢复时覆盖旧会话保存的规则。 */
+    private ToolPermissions toolPermissions = new ToolPermissions();
+
+    @Getter
+    @Setter
+    public static class ToolPermissions {
+        /** 只允许真实注册或明确可选的工具名；强制 ASK 不允许降为 ALLOW。 */
+        private Map<String, PermissionBehavior> overrides = Map.of();
+    }
 
     /**
      * 上下文压缩配置

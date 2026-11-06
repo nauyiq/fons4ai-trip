@@ -29,6 +29,10 @@ flowchart TB
 
 `MasterAgentConfig` 用一个 `AgentScopeHarnessAgent` 包装 Master；三个业务子 Agent 是原生 HarnessAgent，分别配置 Toolkit。共用模型选择、时间上下文、原生 OTel/Fons 观测、活动 Agent 保存、共享存储和工作空间。子 Agent 另外装配执行生命周期与审批拒绝处理中间件，确保它们进入同一取消/恢复边界。
 
+2026-10-28 R2.2 撤回本轮新增的框架权限策略接口及其运行上下文传递、许可覆盖和当前 DENY 恢复预检。固定工具规则只在 Trip 的 MasterAgentConfig 装配原生 permissionContext，执行许可继续由 SDK 处理；既有 Fons4AI 批次身份/Schema/CAS/防重与父子恢复不改。旧会话可以沿用保存的许可，新部署规则即时撤销旧审批不属于当前保证；具体配置与本轮验证状态见 [工具许可](agents-and-hitl.md#三种人工与审核语义)。
+
+R2.3 的偏好简化只调整 Trip：页面与业务工具共用 CRUD，业务使用时按需查询；移除每次推理自动注入偏好及偏好原消息来源链，不新增框架采集、同步或恢复机制。原生记忆装配继续保留，业务默认优先于历史原生记忆，见[差旅偏好](travel-business.md#结构化差旅偏好与原生记忆)。
+
 ## 模型如何按协议装配
 
 业务继续用 `ModelType` 和 `ModelFacade` 取得原来的四个 Spring Bean。`AgentModelConfiguration` 在启动时集中校验并装配客户端，不增加模型代理、注册中心或业务侧的供应商分支。

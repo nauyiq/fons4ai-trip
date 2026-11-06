@@ -45,6 +45,28 @@ flowchart TB
 
 用户档案、常驻城市和联系人由用户信息工具读写。模型提出的用户、单号或档案内容需要按可信身份校验；不将上次规划中的快照直接当成当前业务状态。
 
+## 结构化差旅偏好与原生记忆
+
+2026-10-28 的 R2.3 将业务偏好收敛为页面 CRUD 与查询/修改工具共用一套读写服务，目录仍是出行方式、高铁席别、飞机舱等、座位位置、酒店星级、酒店特征及酒店房型。Master/行程管理可读写，规划/信息节点只读。原生保存、提取、整理和 Markdown 文件仍保留；业务默认优先于历史原生记忆，两条路径不做同步或时间仲裁。
+
+目录编码、选项、分组与选择方式集中由 [PreferenceKey](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/common/constants/PreferenceKey.java) 及关联枚举定义，PreferenceCatalog 只从枚举生成目录；[PreferenceData](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/common/dto/preference/PreferenceData.java) 只声明带完整字段说明的 record。状态、操作和选择类型使用枚举，协议中的 key 和选项 value 仍沿用既有编码，数据库 JSON List 格式不变。SDK 2.0.3 对工具枚举使用 Java 常量名，因此 key 在协议边界保持字符串并统一交给枚举目录校验；不能直接将其 Schema 变成 TRANSPORT_MODE 等内部名称。
+
+```mermaid
+flowchart LR
+    Page[偏好页面] --> Save[统一业务服务]
+    Chat[明确修改长期偏好] --> Tool[业务修改工具]
+    Tool --> Save
+    Save --> Profile[user_profile JSON List 与独立版本列]
+    Profile --> Query[业务按需查询默认值]
+    Native[原生记忆文件] --> Reference[补充参考]
+```
+
+每项只保存 key/value/status/updatedAt，整份列表共用 preference_version 条件更新，一批只递增一次。兼容读取旧额外元数据，正常保存写四字段；不新增 DDL。清除保留 CLEARED，旧原生内容不自动补回。用户本次明确要求用于本次任务；明确修改长期默认时调用业务修改工具，页面与工具随后读到同一新值。memory_save 成功不代表业务已更新，企业政策、日期和真实库存仍是约束。
+
+交通/酒店推荐与规划需要默认值时按需查询，不在每次推理自动注入；天气、资讯等无关任务不查偏好。规划须把实际采用的偏好传入现有 preferences/scores 并随方案保存，审核使用该快照；默认更新不自动改变既有差旅单、方案和待审批参数。出处核验、消息来源链和确认时间仲裁已退出本期。
+
+入口为 [PreferenceApplicationService](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/application/user/PreferenceApplicationService.java)、[偏好工具](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/agent/tool/UserPreferenceTools.java) 和 [PreferenceController](../../fons4ai-trip-agent-service/src/main/java/com/fons/cloud/ai/trip/controller/PreferenceController.java)。现有两列迁移完成后随应用正常接入，不设单独开关。共享 travel-preferences.md 只在 Agent 装配时补充统一业务规则，不读库或逐次注入动态偏好；业务仍通过工具按需查询。构建、本地核对与真实页面/模型验收分开记录，进度见 [任务规划](../development/features/20261022-native-memory-preferences-permissions/任务规划.md)。
+
 ## 已有实现与后续边界
 
 当前业务 Agent 枚举和 Master 装配中没有独立预订 Agent，`BookingApplicationService` 主要提供关联记录查询。真实预订、支付、退款、重试和外部订单状态同步应作为独立业务能力评估，不由记录表或前端卡片推断完成。

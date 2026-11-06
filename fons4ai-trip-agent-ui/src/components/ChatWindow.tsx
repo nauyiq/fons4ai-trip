@@ -10,6 +10,7 @@ import AgentMessageBlock, { ThinkingBlock } from './AgentMessageBlock';
 import RequestSummary from './RequestSummary';
 import ApprovalBatchCard from './ApprovalBatchCard';
 import UserInteractionCard from './UserInteractionCard';
+import PublishedPlan from './PublishedPlan';
 import type { Message, PlanTask, UserInteraction, TravelData, BookingResult, PlanHtmlData, ApprovalReplayRequest } from '../types';
 import { approvalBatchReady, groupApprovalBatches, hasUnresolvedApproval, sameMessageSet } from '../approval';
 
@@ -162,6 +163,8 @@ export default function ChatWindow() {
   const [interrupting, setInterrupting] = useState(false);
   const [executionError, setExecutionError] = useState('');
   const [executionRetry, setExecutionRetry] = useState(0);
+  /** 方案完成通知按会话保存；实际内容始终通过差旅单接口重新授权读取。 */
+  const [publishedPlanOrders, setPublishedPlanOrders] = useState<Record<string, Record<string, { orderId: string; key: string }>>>({});
   /** 保证网络请求尚未返回时也能挡住第二次点击。 */
   const streamLock = useRef(false);
   const streamConversation = useRef('');
@@ -388,6 +391,41 @@ export default function ChatWindow() {
   };
 
   const handleEvent = (event: string, data: string) => {
+    if (event === 'itinerary_page_ready') {
+      try {
+        const page = JSON.parse(data) as { conversationId?: string; orderId?: string; planId?: string; reviewId?: string };
+        const auth = useAuthStore.getState();
+        const sourceId = streamConversation.current;
+        const source = useChatStore.getState().conversations.find(item => item.id === sourceId);
+        if (!source || auth.userId !== userId || auth.token !== token
+            || typeof page.conversationId !== 'string' || !page.conversationId.trim()
+            || typeof page.orderId !== 'string' || !page.orderId.trim()
+            || typeof page.planId !== 'string' || !page.planId.trim()
+            || typeof page.reviewId !== 'string' || !page.reviewId.trim()) {
+          return;
+        }
+        const conversationId = page.conversationId.trim();
+        if (sourceId !== conversationId) {
+          // 新会话的绑定事件可能在切换会话时被忽略；只能将本流中的本地临时会话绑定到服务端 ID。
+          if (source.isRemote) {
+            return;
+          }
+          bindRemoteConversation(sourceId, conversationId);
+          streamConversation.current = conversationId;
+        }
+        const orderId = page.orderId.trim();
+        setPublishedPlanOrders(previous => ({
+          ...previous,
+          [conversationId]: {
+            ...previous[conversationId],
+            [orderId]: { orderId, key: `${orderId}:${page.planId}:${page.reviewId}` },
+          },
+        }));
+      } catch {
+        // 不完整的通知不能作为方案读取凭证。
+      }
+      return;
+    }
     // 会话绑定后继续使用同一服务端ID；迟到回调不能写入退出登录后的新会话。
     if (streamConversation.current && useChatStore.getState().currentConversationId !== streamConversation.current) return;
     switch (event) {
@@ -928,6 +966,16 @@ export default function ChatWindow() {
 
         {/* 兜底思考动画：处理中且没有任何时间轴内容 */}
         {isThinking && !lastAgentIsStreaming && timeline.length === 0 && <ThinkingDots />}
+
+        {Object.values(publishedPlanOrders[currentConversationId] || {}).map(plan => <div className="msg-row agent" key={plan.orderId}>
+          <div className="msg-avatar agent-avatar" style={{ visibility: 'hidden' }} />
+          <div className="msg-agent-content">
+            <div className="msg-agent-bubble">
+              <p>差旅单 {plan.orderId} 的行程方案已生成，你也可以在“我的差旅”中查看。</p>
+              <PublishedPlan key={plan.key} orderId={plan.orderId} />
+            </div>
+          </div>
+        </div>)}
 
         {/* 推荐问题：MasterAgent 返回后由问题推荐智能体生成 */}
         {!isThinking && !executionBlocked && !approvalBlocked && suggestedQuestions.length > 0 && (

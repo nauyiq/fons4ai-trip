@@ -2,6 +2,11 @@ package com.fons.cloud.ai.trip.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.fons.cloud.ai.trip.common.dto.preference.PreferenceData;
+import com.fons.cloud.ai.trip.infrastructure.persistence.PreferenceListTypeHandler;
+import java.util.List;
 import com.fons.cloud.ai.trip.common.constants.Gender;
 import com.fons.cloud.ai.trip.common.constants.IdType;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
@@ -76,6 +81,15 @@ public class UserProfile extends BaseEntity {
      * 性别：M-男，F-女
      */
     private Gender gender;
+
+    /** 业务偏好列表；仅偏好专用查询读取，防止迁移前影响普通档案查询。 */
+    @TableField(select = false, insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER,
+            typeHandler = PreferenceListTypeHandler.class)
+    private List<PreferenceData.Item> travelPreferences;
+
+    /** 整份业务偏好的乐观锁；只允许专用 Mapper 更新，不随联系人修改递增。 */
+    @TableField(select = false, insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
+    private Long preferenceVersion;
 
 
 }

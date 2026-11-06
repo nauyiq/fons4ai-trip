@@ -41,7 +41,9 @@ flowchart TB
 
 补充信息统一由底部聊天框承接自然语言回答，不要求独立表单或固定日期格式；实时与刷新后的状态来源见 [会话交互](conversation.md#页面以什么判断状态)。Master 继续原子会话，业务子 Agent 结合可信时间上下文解析日期，不因用户使用相对日期就重新创建任务。
 
-ASK 由 `trip.agent.master.approval-required-tools` 配置，并只应用到子 Agent 实际具有的工具。默认集合为空；提示词要求“先确认”不能作为所有工具已经配置 ASK 的证据。新增工具应同时检查工具集、权限规则和业务失败保护的覆盖。
+2026-10-28 R2.2 根据用户指令，将固定工具许可收敛回 Trip 的 MasterAgentConfig：直接构造 AgentScope 原生 PermissionContextState / PermissionRule，继续把 approval-required-tools 转成 ASK，保留可选 tool-permissions.overrides 和强制规则校验。已确认低风险查询、明确偏好修改与原生记忆工具显式 ALLOW，关键写操作逐次 ASK，危险通用写/命令入口 DENY 或不注册。未在 ASK 名单只表示没有额外 ASK，不等于显式 ALLOW；未分类工具还要看 SDK 默认与明确静态规则。当前两项查询的临时 ASK 保留。
+
+本轮撤回独立策略类及框架提供者，不在普通执行/恢复前覆盖旧会话许可，也不承诺新部署 DENY 使旧 ASK 立即失效。原有批次身份、Schema、完整决定集、CAS、防重放、拒绝与父子恢复继续复用。R2.3 偏好工具改为与页面共用 CRUD，去掉偏好专属的原消息来源预检和恢复链，保留可信用户、版本条件更新及实际写入前取消检查。R2.1 的旧会话许可覆盖/当前 DENY 预检检查只作历史证据；R2.2 的 20 项原生装配观察及嵌套批次回归不等于 R2.3 的真实业务验收，详细状态见 [任务规划](../development/features/20261022-native-memory-preferences-permissions/任务规划.md)。
 
 2026-10-21 已在 InfoAgent、规划 Agent 及 Master 提示词增加许可描述边界：回复聚焦业务结果，缺少可信且归属具体调用的执行事实时不推断“无需审批/未触发审批/沿用旧批准”。工具成功、用户自然语言和子 Agent 的流程描述均不能替代真实审批记录；差旅单业务状态仍按可信结果说明。该变更是提示词约束，不是新的框架权限保证或审批历史查询能力。同日新会话完成首次News审批、同InfoAgent续问的新审批与恢复，两票证均消费，刷新保留，两个最终回复未再误述许可；该样本不保证模型今后绝无误述，无ASK等边界仍待验，见 [本轮任务](../development/features/20261021-news-quality-and-approval-narration/任务规划.md)。
 

@@ -9,6 +9,7 @@ import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
+import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.common.base.exception.SystemIntervalException;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
     private final AgentRegistry agentRegistry;
+    private final ItineraryPlanPageNotificationRegistry pageNotificationRegistry;
 
     /** 先检查原生审批状态及全部参数，再由业务层事务占用票证；此处不启动Run。 */
     public void validateApprovalResume(AgentRequest request) {
@@ -57,6 +59,8 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
 
             log.info("开始执行MasterAgent，pipelineRunId:{}, agentRunId:{}", scope.runId(), masterRun.runId());
             context.masterRun(masterRun);
+            // 工具只能获取 Agent Run ID，在执行前绑定当前 Pipeline Run，不能以会话猜测运行身份。
+            pageNotificationRegistry.bindAgentRun(masterRun.runId(), scope.runId());
 
             /*
              * relay负责订阅并转发MasterAgent事件、等待权威AgentRunResult，
@@ -64,7 +68,8 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
              */
             return scope.relay(masterRun)
                     .switchIfEmpty(Mono.error(SystemIntervalException.of("MasterAgent未返回AgentRunResult")))
-                    .map(result -> completeMasterRun(context, result));
+                    .map(result -> completeMasterRun(context, result))
+                    .doFinally(signal -> pageNotificationRegistry.unbindAgentRun(masterRun.runId(), scope.runId()));
         });
     }
 

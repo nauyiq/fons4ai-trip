@@ -2,7 +2,6 @@ package com.fons.cloud.ai.trip.controller;
 
 import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanPageApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -35,11 +34,13 @@ public class ItineraryPlanPageController {
      *
      * @param planId 规划标识
      * @param conversationId 会话标识
+     * @param orderId 差旅单标识；旧页面链接可不传
      * @param response HTTP响应，用于禁止缓存页面内容
      * @return 已审核方案的HTML内容
      */
     @GetMapping("/{planId}/page")
     public R<String> read(@PathVariable String planId, @RequestParam String conversationId,
+                          @RequestParam(required = false) String orderId,
                           HttpServletResponse response) {
         response.setHeader("Cache-Control", "no-store");
         if (!saTokenAuthTemplate.isLogin()) {
@@ -53,7 +54,7 @@ public class ItineraryPlanPageController {
             return R.failed(ResultCode.PARAMS_ERROR);
         }
 
-        String html = pageApplicationService.read(new CandidateOwner(userId, conversationId), planId);
+        String html = pageApplicationService.read(userId, orderId, conversationId, planId);
         if (html == null) {
             return R.failed(TripAgentResultCode.ITINERARY_PLAN_PAGE_NOT_EXIST);
         }

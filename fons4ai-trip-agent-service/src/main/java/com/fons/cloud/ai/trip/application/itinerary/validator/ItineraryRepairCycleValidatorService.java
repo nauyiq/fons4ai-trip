@@ -3,7 +3,6 @@ package com.fons.cloud.ai.trip.application.itinerary.validator;
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.ItineraryRepairStatus;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewNextAction;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.ItineraryRepairCycle;
 import com.fons.cloud.ai.trip.common.dto.ItineraryScope;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
@@ -41,10 +40,10 @@ public class ItineraryRepairCycleValidatorService {
     /**
      * 规划前检查当前任务是否允许继续。失败的规划不消耗修复次数。
      */
-    public void beforePlan(CandidateOwner owner, ItineraryPlanRequest request, String runId) {
+    public void beforePlan(String userId, String orderId, String conversationId, ItineraryPlanRequest request, String runId) {
         requireRunId(runId);
         // 1. 新会话任务直接规划；已结束的任务只能在下一轮用户请求中重新开始
-        ItineraryRepairCycle cycle = repository.find(owner);
+        ItineraryRepairCycle cycle = repository.find(userId, orderId, conversationId);
         if (cycle == null) {
             return;
         }
@@ -71,23 +70,23 @@ public class ItineraryRepairCycleValidatorService {
     /**
      * 仅在完整方案保存成功后记录规划次数，并等待审核该方案。
      */
-    public void afterPlan(CandidateOwner owner, ItineraryPlanRequest request,
+    public void afterPlan(String userId, String orderId, String conversationId, ItineraryPlanRequest request,
                           String runId, ItineraryPlanningResult result) {
-        ItineraryRepairCycle previous = repository.find(owner);
+        ItineraryRepairCycle previous = repository.find(userId, orderId, conversationId);
         ItineraryScope scope = ItineraryScope.from(request);
         boolean repair = previous != null && scope.equals(previous.scope())
                 && previous.status() != ItineraryRepairStatus.CLOSED;
         int replanCount = repair ? previous.replanCount() + 1 : 0;
-        repository.save(owner, new ItineraryRepairCycle(scope, result.getPlanId(), runId,
+        repository.save(userId, orderId, conversationId, new ItineraryRepairCycle(scope, result.getPlanId(), runId,
                 replanCount, 0, ItineraryRepairStatus.AWAITING_REVIEW));
     }
 
     /**
      * 只审核当前任务的方案，避免旧方案结果改变正在执行的修复流程。
      */
-    public void beforeReview(CandidateOwner owner, String planId, String runId) {
+    public void beforeReview(String userId, String orderId, String conversationId, String planId, String runId) {
         requireRunId(runId);
-        ItineraryRepairCycle cycle = repository.find(owner);
+        ItineraryRepairCycle cycle = repository.find(userId, orderId, conversationId);
         if (cycle == null) {
             return;
         }
@@ -107,10 +106,10 @@ public class ItineraryRepairCycleValidatorService {
      *
      * @return 审核报告保存成功后应写入的修复状态
      */
-    public ItineraryRepairCycle resolveAfterReview(CandidateOwner owner, ItineraryPlanningResult planningResult,
+    public ItineraryRepairCycle resolveAfterReview(String userId, String orderId, String conversationId, ItineraryPlanningResult planningResult,
                                                    String runId, ItineraryReviewResult result) {
         // 1. 加载当前任务；旧规划首次审核时补建最小修复状态
-        ItineraryRepairCycle cycle = repository.find(owner);
+        ItineraryRepairCycle cycle = repository.find(userId, orderId, conversationId);
         if (cycle == null) {
             // 兼容启用修复状态前已保存的规划，按首次规划承接其审核。
             Assert.isTrue(planningResult.getUserRequest() != null,
@@ -150,8 +149,8 @@ public class ItineraryRepairCycleValidatorService {
     /**
      * 审核报告保存成功后提交修复状态。
      */
-    public void saveResolvedReview(CandidateOwner owner, ItineraryRepairCycle cycle) {
-        repository.save(owner, cycle);
+    public void saveResolvedReview(String userId, String orderId, String conversationId, ItineraryRepairCycle cycle) {
+        repository.save(userId, orderId, conversationId, cycle);
     }
 
     private void requireRunId(String runId) {

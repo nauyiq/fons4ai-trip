@@ -11,4 +11,18 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class UserProfileDomainServiceImpl extends ServiceImpl<UserProfileMapper, UserProfile> implements UserProfileDomainService {
+    @Override
+    public UserProfile getPreferenceProfile(String userId) {
+        return baseMapper.selectPreferenceProfile(userId);
+    }
+
+    @Override
+    public void ensurePreferenceProfile(String userId) {
+        baseMapper.ensurePreferenceProfile(userId);
+    }
+
+    @Override
+    public boolean updatePreferencesWithVersion(String userId, String json, long version) {
+        return baseMapper.updatePreferencesWithVersion(userId, json, version) == 1;
+    }
 }

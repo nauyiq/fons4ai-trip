@@ -6,7 +6,6 @@ import com.fons.cloud.ai.agent.model.hitl.HumanInTheLoopKind;
 import com.fons.cloud.ai.agent.model.response.AgentRunResult;
 import com.fons.cloud.ai.agent.model.runtime.AgentRunState;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutePipeline;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.vo.MessageInfo;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
@@ -49,8 +48,8 @@ public class ChatStreamOutputAdapter {
     private final ItineraryPlanPageNotificationRegistry pageNotificationRegistry;
 
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
-                              CandidateOwner owner) {
-        return adapt(run, owner, run.termination().thenReturn(List.of()));
+                              String conversationId) {
+        return adapt(run, conversationId, run.termination().thenReturn(List.of()));
     }
 
     /**
@@ -58,10 +57,11 @@ public class ChatStreamOutputAdapter {
      * 正常、失败和取消路径共用这一个收尾入口；交接失败时不能宣告空闲或开放审批。
      */
     public Flux<String> adapt(ReactiveTaskRun<String, AgentExecutePipeline.PipelineResult> run,
-                              CandidateOwner owner,
+                              String conversationId,
                               Mono<List<MessageInfo>> finalizedMessages) {
-        String conversationId = owner.conversationId();
-        return Flux.defer(() -> Flux.just(conversationReadyEvent(conversationId, run.runId()))
+        return Flux.defer(() -> {
+            pageNotificationRegistry.register(run.runId());
+            return Flux.just(conversationReadyEvent(conversationId, run.runId()))
                 .concatWith(run.events()
                         .filter(event -> !isInternalHitl(event))
                         // 过程事件不是权威终态；即使过程通道失败，也要读取completion。
@@ -83,9 +83,10 @@ public class ChatStreamOutputAdapter {
                             log.error("聊天结果发布失败，pipelineRunId:{}", run.runId(), error);
                             return Mono.just(unresolvedEvent(run.runId(), ReactiveTaskState.FAILED, conversationId, List.of()));
                         })))
-                        .flatMapMany(terminalEvent -> pageReadyEvent(owner)
+                        .flatMapMany(terminalEvent -> pageReadyEvent(conversationId, run.runId())
                                 .concatWith(Mono.just(terminalEvent))))
-                .doFinally(signal -> pageNotificationRegistry.discard(owner)));
+                .doFinally(signal -> pageNotificationRegistry.discard(run.runId()));
+        });
     }
 
     /** 过程通知不是业务审批凭证；正式卡片仅从持久化后的run_ended获得。 */
@@ -98,11 +99,12 @@ public class ChatStreamOutputAdapter {
         }
     }
 
-    private Mono<String> pageReadyEvent(CandidateOwner owner) {
-        return Mono.defer(() -> Mono.justOrEmpty(pageNotificationRegistry.consume(owner))
+    private Flux<String> pageReadyEvent(String conversationId, String pipelineRunId) {
+        return Flux.defer(() -> Flux.fromIterable(pageNotificationRegistry.consume(pipelineRunId))
                 .map(page -> {
                     JSONObject data = new JSONObject();
-                    data.put("conversationId", owner.conversationId());
+                    data.put("conversationId", conversationId);
+                      data.put("orderId", page.orderId());
                     data.put("planId", page.planId());
                     data.put("reviewId", page.reviewId());
                     data.put("recommendedProposalId", page.recommendedProposalId());

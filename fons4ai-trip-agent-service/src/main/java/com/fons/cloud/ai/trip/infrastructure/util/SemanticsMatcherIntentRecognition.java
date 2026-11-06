@@ -46,6 +46,10 @@ public class SemanticsMatcherIntentRecognition {
      */
     private static final int MULTI_INTENT_MIN_CONJUNCTION_OFFSET = 4;
 
+    /** 预算常与“我要出差”等申请关键词重叠，交给模型结合上下文区分咨询和申请。 */
+    private static final Pattern BUDGET_QUERY = Pattern.compile(
+            "预算|预估|估算|(?:出差|差旅).{0,10}(?:费用|花费|花销)|大概.{0,8}(?:多少钱|费用|花费|花销)");
+
 
     /**
      * 进行L1, L2的语义识别
@@ -59,6 +63,12 @@ public class SemanticsMatcherIntentRecognition {
         }
 
         String normalized = input.trim();
+
+        // 预算可能同时包含申请或查询意图；单意图规则不应抢先决定创建申请。
+        if (BUDGET_QUERY.matcher(normalized).find()) {
+            log.info("[SEMANTICS_RECOGNITION] 预算相关表述需要结合上下文，交由模型识别");
+            return R.failed(TripAgentResultCode.SEMANTICS_RECOGNITION_HAS_AMBIGUOUS_INTENT_SIGNAL);
+        }
 
         // -------- L0：多意图结构启发 --------
         if (hasMultiIntentSignal(normalized)) {

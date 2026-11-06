@@ -51,7 +51,7 @@ public class ItineraryPlanRequest extends BaseRequest {
     private String conversationId;
 
     /**
-     * 本次规划关联的差旅单号，可选。该值来自模型工具参数时仍属于未验证引用，
+     * 本次规划关联的差旅单号，必填。该值来自模型工具参数时仍属于未验证引用，
      * 应用层必须按当前用户重新查询差旅单后才能写入规划结果。
      */
     private String travelOrderId;
@@ -173,6 +173,9 @@ public class ItineraryPlanRequest extends BaseRequest {
         }
         if (getConversationId() == null) {
             errors.add("会话ID不能为空");
+        }
+        if (getTravelOrderId() == null) {
+            errors.add("行程规划需要差旅单ID");
         }
         if (getOrigin() == null) {
             errors.add("出发城市不能为空");

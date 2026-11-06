@@ -9,17 +9,18 @@ import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanPageApplication
 import com.fons.cloud.ai.trip.application.itinerary.ItineraryReviewApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest.CandidatePreferenceScores;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageArtifact;
+import com.fons.cloud.ai.trip.common.response.ItineraryPlanPageReady;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult.ProposalSummary;
 import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
+import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.common.base.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -34,6 +35,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 
 /**
  * 往返行程规划及审核工具（去程 + 住宿 + 返程）的Agent适配入口。
@@ -58,6 +60,7 @@ public class ItineraryPlannerTools implements BaseTool {
     private final ItineraryPlanApplicationService itineraryPlanApplicationService;
     private final ItineraryReviewApplicationService itineraryReviewApplicationService;
     private final ItineraryPlanPageApplicationService itineraryPlanPageApplicationService;
+    private final ItineraryPlanPageNotificationRegistry pageNotificationRegistry;
     private final TravelPolicyApplicationService travelPolicyApplicationService;
 
     @Tool(
@@ -73,7 +76,7 @@ public class ItineraryPlannerTools implements BaseTool {
             @ToolParam(name = "destination", description = "目的城市，必填，如杭州") String destination,
             @ToolParam(name = "departure_date", description = "去程日期，YYYY-MM-DD") String departureDate,
             @ToolParam(name = "return_date", description = "返程日期，YYYY-MM-DD，必须晚于去程日期") String returnDate,
-            @ToolParam(name = "travel_order_id", description = "基于已确定差旅单规划时传入其单号；服务端会校验当前用户归属，不关联差旅单时不传", required = false) String travelOrderId,
+            @ToolParam(name = "travel_order_id", description = "已确定的差旅单号；服务端会校验当前用户归属") String travelOrderId,
             @ToolParam(name = "adult_count", description = "酒店搜索使用的成人数；不传默认2人", required = false) Integer adultCount,
             @ToolParam(name = "child_ages", description = "酒店搜索使用的儿童年龄列表；没有儿童时不传或传空列表", required = false) List<Integer> childAges,
             @ToolParam(name = "preferences", description = "用户明确表达或长期记忆召回的偏好，无则留空；工具不自行解读", required = false) String preferences,
@@ -145,6 +148,8 @@ public class ItineraryPlannerTools implements BaseTool {
         } catch (BusinessRuntimeException e) {
             log.warn("[TOOL][plan_itinerary] 规划请求未完成，userId={}, code={}", userId, e.getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[TOOL][plan_itinerary] 行程规划失败，userId={}", userId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), "行程规划失败，不能据此判断没有可用方案，请稍后重试。");
@@ -161,12 +166,17 @@ public class ItineraryPlannerTools implements BaseTool {
     )
     public R<ItineraryReviewResult> reviewItineraryPlan(
             RuntimeContext context,
+            @ToolParam(name = "travel_order_id", description = "所属差旅单号，服务端会校验当前用户归属") String orderId,
             @ToolParam(name = "plan_id", description = "plan_itinerary成功返回的真实planId") String planId) {
         String userId = context == null ? null : context.getUserId();
         String conversationId = TripRuntimeContext.conversationId(context);
         String normalizedUserId = requiredRuntimeValue(userId, "user_id");
         String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
+        String normalizedOrderId = StringUtils.trimToNull(orderId);
         String normalizedPlanId = StringUtils.trimToNull(planId);
+        if (normalizedOrderId == null) {
+            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "travel_order_id 不能为空");
+        }
         if (normalizedPlanId == null) {
             return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "plan_id 不能为空");
         }
@@ -174,8 +184,7 @@ public class ItineraryPlannerTools implements BaseTool {
         log.info("[TOOL][review_itinerary_plan] userId={}, conversationId={}, planId={}",
                 normalizedUserId, normalizedConversationId, normalizedPlanId);
         try {
-            CandidateOwner owner = new CandidateOwner(normalizedUserId, normalizedConversationId);
-            ItineraryReviewResult result = itineraryReviewApplicationService.review(owner, normalizedPlanId,
+            ItineraryReviewResult result = itineraryReviewApplicationService.review(normalizedUserId, normalizedOrderId, normalizedConversationId, normalizedPlanId,
                     currentRunId(context));
             if (result == null) {
                 return R.failed(TripAgentToolResultCode.PLAN_NOT_FOUND.getCode(),
@@ -202,14 +211,19 @@ public class ItineraryPlannerTools implements BaseTool {
             description = "为当前会话中已审核且nextAction=PROCEED的方案生成HTML页面并保存。"
                     + "工具会重新校验最新审核和当前方案，不会把不可展示方案发布。"
                     + "返回的是服务端页面定位信息，不代表页面已发送给用户或完成预订。")
-    public R<ItineraryPlanPageArtifact> createItineraryPlanPage(
+    public R<ItineraryPlanPageReady> createItineraryPlanPage(
             RuntimeContext context,
+            @ToolParam(name = "travel_order_id", description = "所属差旅单号，服务端会校验当前用户归属") String orderId,
             @ToolParam(name = "plan_id", description = "plan_itinerary成功返回且review_itinerary_plan已审核的真实planId") String planId) {
         String userId = context == null ? null : context.getUserId();
         String conversationId = TripRuntimeContext.conversationId(context);
         String normalizedUserId = requiredRuntimeValue(userId, "user_id");
         String normalizedConversationId = requiredRuntimeValue(conversationId, "conversation_id");
+        String normalizedOrderId = StringUtils.trimToNull(orderId);
         String normalizedPlanId = StringUtils.trimToNull(planId);
+        if (normalizedOrderId == null) {
+            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "travel_order_id 不能为空");
+        }
         if (normalizedPlanId == null) {
             return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "plan_id 不能为空");
         }
@@ -217,9 +231,12 @@ public class ItineraryPlannerTools implements BaseTool {
         log.info("[TOOL][create_itinerary_plan_page] userId={}, conversationId={}, planId={}",
                 normalizedUserId, normalizedConversationId, normalizedPlanId);
         try {
-            CandidateOwner owner = new CandidateOwner(normalizedUserId, normalizedConversationId);
-            ItineraryPlanPageArtifact artifact = itineraryPlanPageApplicationService.create(owner, normalizedPlanId);
-            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", artifact);
+            ItineraryPlanPageArtifact artifact = itineraryPlanPageApplicationService.create(normalizedUserId, normalizedOrderId, normalizedConversationId, normalizedPlanId);
+            // 仅在发布事务成功后登记通知，且不把 OSS 对象路径暴露给模型或客户端。
+            ItineraryPlanPageReady ready = new ItineraryPlanPageReady(artifact.planId(), artifact.reviewId(),
+                    artifact.recommendedProposalId(), normalizedOrderId);
+            pageNotificationRegistry.publishForAgentRun(currentRunId(context), ready);
+            return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", ready);
         } catch (BusinessRuntimeException e) {
             log.warn("[TOOL][create_itinerary_plan_page] 页面生成未完成，userId={}, planId={}, code={}",
                     normalizedUserId, normalizedPlanId, e.getCode());
@@ -289,6 +306,8 @@ public class ItineraryPlannerTools implements BaseTool {
             resultCode = TripAgentToolResultCode.VERIFY_FAILED;
         } else if (TripAgentResultCode.TRAVEL_ORDER_NOT_EXIST.getCode().equals(planningResult.getCode())) {
             resultCode = TripAgentToolResultCode.ORDER_NOT_FOUND;
+        } else if (ResultCode.ILLEGAL_REQUEST_LIMITED.getCode().equals(planningResult.getCode())) {
+            resultCode = TripAgentToolResultCode.INVALID_STATE;
         } else {
             resultCode = TripAgentToolResultCode.INTERNAL_ERROR;
         }

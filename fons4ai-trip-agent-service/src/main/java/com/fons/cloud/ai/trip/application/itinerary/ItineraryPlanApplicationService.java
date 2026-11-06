@@ -3,7 +3,7 @@ package com.fons.cloud.ai.trip.application.itinerary;
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.application.itinerary.validator.ItineraryRepairCycleValidatorService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
+import com.fons.cloud.ai.trip.common.constants.TravelOrderStatus;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateGroups;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot.PreparationResult;
@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 行程规划应用服务，基于已保存的标准候选、可信差旅政策和偏好评分生成结构化方案。
@@ -69,7 +70,6 @@ public class ItineraryPlanApplicationService {
         if (CollectionUtils.isNotEmpty(validationErrors)) {
             return R.failed(ResultCode.PARAMS_ERROR.getCode(), String.join("；", validationErrors));
         }
-        repairCycleService.beforePlan(new CandidateOwner(request.getUserId(), request.getConversationId()), request, runId);
 
         log.info("ItineraryPlanApplicationService#plan: userId={}, conversationId={}, origin={}, "
                         + "destination={}, departureDate={}, returnDate={}, travelOrderLinked={}",
@@ -77,15 +77,17 @@ public class ItineraryPlanApplicationService {
                 request.getDestination(), request.getDepartureDate(), request.getReturnDate(),
                 request.getTravelOrderId() != null);
 
-        // 2. 验证可选差旅单关联，模型提供的单号不能直接作为审核事实
-        CandidateOwner owner = new CandidateOwner(request.getUserId(), request.getConversationId());
+        // 2. 验证差旅单关联，模型提供的单号不能直接作为审核事实
         R<TravelOrderReference> travelOrderResult = resolveTravelOrderReference(request);
         if (!travelOrderResult.isSuccess()) {
             return R.failed(travelOrderResult.getCode(), travelOrderResult.getMessage());
         }
 
-        // 3. 按可信用户、会话和行程条件读取本次规划候选快照
-        ItineraryCandidateSnapshot candidateSnapshot = loadCandidateSnapshot(request, owner);
+        repairCycleService.beforePlan(request.getUserId(), request.getTravelOrderId(),
+                request.getConversationId(), request, runId);
+
+        // 3. 按可信用户、差旅单和行程条件读取候选快照
+        ItineraryCandidateSnapshot candidateSnapshot = loadCandidateSnapshot(request);
         // 4. 校验候选引用并应用明确排除项
         PreparationResult preparation = candidateSnapshot.prepareForPlanning(
                 request.getScores(), request.getExcludedCandidateIds());
@@ -122,48 +124,105 @@ public class ItineraryPlanApplicationService {
                 combinations.size(), buildResult.rejectedCombinationCount());
 
         // 7. 计算政策、偏好和体验分，补充可信差旅单快照后保存完整结果
-        ItineraryPlanningResult result = ItineraryPlanCalculation.calculate(request, combinations);
+        ItineraryPlanningResult result = ItineraryPlanCalculation.calculate(request, combinations, candidateSnapshot);
         result.setSourceTravelOrder(travelOrderResult.getData());
-        planRepository.save(owner, result);
+        planRepository.save(request.getUserId(), request.getTravelOrderId(), request.getConversationId(), result);
         // 8. 规划保存成功后更新修复次数，失败的计算或保存不消耗修复机会
-        repairCycleService.afterPlan(owner, request, runId, result);
+        repairCycleService.afterPlan(request.getUserId(), request.getTravelOrderId(), request.getConversationId(), request, runId, result);
         log.info("ItineraryPlanApplicationService#plan: planId={}, proposalCount={}", result.getPlanId(), result.getProposals().size());
         return R.success(result);
     }
 
     /**
      * 根据planId获取一次单目的城市往返行程规划结果
-     * @param owner  规划结果归属不能为空
+     * @param userId 可信用户标识
+     * @param orderId 差旅单标识
+     * @param conversationId 根会话标识
      * @param planId planId不能为空
      * @return
      */
-    public ItineraryPlanningResult getPlan(CandidateOwner owner, String planId) {
-        Assert.notNull(owner, () -> parameterError("规划结果归属不能为空"));
+    public ItineraryPlanningResult getPlan(String userId, String orderId, String conversationId, String planId) {
+        TravelOrder order = requireOrder(userId, orderId);
         Assert.notBlank(planId, () -> parameterError("planId不能为空"));
-        return planRepository.findById(owner, planId.trim());
+        ItineraryPlanningResult plan = planRepository.findById(userId, orderId, conversationId, planId.trim());
+        if (plan != null) {
+            requireCurrentOrderMatchesPlan(order, plan);
+        }
+        return plan;
+    }
+
+    /**
+     * 使用方案前，按当前差旅单核对当时的规划依据；城市、日期或状态变化后需重新规划。
+     * 差旅单应由调用方按当前用户查询，不能使用模型提供的订单对象。
+     */
+    public static void requireCurrentOrderMatchesPlan(TravelOrder order, ItineraryPlanningResult plan) {
+        requireOrderItineraryMatchesPlan(order, plan);
+        boolean active = order.getStatus() == TravelOrderStatus.DRAFT
+                || order.getStatus() == TravelOrderStatus.SUBMITTED
+                || order.getStatus() == TravelOrderStatus.APPROVED;
+        Assert.isTrue(active, () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(),
+                "差旅单的行程信息或状态已变化，请重新规划"));
+    }
+
+    /** 已发布历史可在订单取消或完成后读取，但仍须与当前行程条件一致。 */
+    public static void requireOrderItineraryMatchesPlan(TravelOrder order, ItineraryPlanningResult plan) {
+        TravelOrderReference source = plan == null ? null : plan.getSourceTravelOrder();
+        String message = "差旅单的行程信息或状态已变化，请重新规划";
+        Assert.isTrue(order != null && source != null && StringUtils.isNotBlank(source.orderId())
+                        && StringUtils.equals(source.orderId(), order.getOrderId()),
+                () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), message));
+        // 日期按数据库中的标准日期文本比较，缺失或非法数据不能与历史方案匹配。
+        boolean sameItinerary = StringUtils.isNoneBlank(source.origin(), source.destination(),
+                order.getDepartureCity(), order.getDestination(), order.getDepartureDate(), order.getReturnDate())
+                && source.departureDate() != null && source.returnDate() != null
+                && StringUtils.equals(source.origin(), StringUtils.trimToNull(order.getDepartureCity()))
+                && StringUtils.equals(source.destination(), StringUtils.trimToNull(order.getDestination()))
+                && StringUtils.equals(source.departureDate().toString(), StringUtils.trimToNull(order.getDepartureDate()))
+                && StringUtils.equals(source.returnDate().toString(), StringUtils.trimToNull(order.getReturnDate()));
+        Assert.isTrue(sameItinerary,
+                () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), message));
     }
 
 
     /**
      * 读取与指定往返条件完全匹配的累计候选池。
      */
-    public ItineraryCandidatesResult getCandidates(CandidateOwner owner,
+    public ItineraryCandidatesResult getCandidates(String userId, String orderId,
                                                    String origin,
                                                    String destination,
                                                    LocalDate departureDate,
                                                    LocalDate returnDate,
                                                    Integer adultCount,
                                                    List<Integer> childAges) {
-        Assert.notNull(owner, () -> parameterError("候选归属不能为空"));
+        TravelOrder order = requireOrder(userId, orderId);
+        Assert.isTrue(order.getStatus() == TravelOrderStatus.DRAFT
+                        || order.getStatus() == TravelOrderStatus.SUBMITTED
+                        || order.getStatus() == TravelOrderStatus.APPROVED,
+                () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(),
+                        "当前差旅单状态不支持行程规划"));
+        Assert.isTrue(StringUtils.equals(origin, order.getDepartureCity())
+                        && StringUtils.equals(destination, order.getDestination())
+                        && Objects.equals(departureDate, LocalDate.parse(order.getDepartureDate()))
+                        && Objects.equals(returnDate, LocalDate.parse(order.getReturnDate())),
+                () -> parameterError("候选查询城市和日期必须与差旅单一致"));
         int normalizedAdultCount = adultCount == null ? DEFAULT_ADULT_COUNT : adultCount;
         List<Integer> normalizedChildAges = childAges == null ? List.of() : childAges;
-        ItineraryCandidateGroups groups = ItineraryCandidateGroups.roundTrip(owner, origin, destination,
+        ItineraryCandidateGroups groups = ItineraryCandidateGroups.roundTrip(userId, orderId, origin, destination,
                 departureDate, returnDate, normalizedAdultCount, normalizedChildAges);
         ItineraryCandidateSnapshot snapshot = candidateRepository.loadSnapshot(groups);
-        return new ItineraryCandidatesResult(snapshot.capturedAt(), snapshot.outboundTransports(), snapshot.inboundTransports(), snapshot.hotels().candidates());
+        return new ItineraryCandidatesResult(snapshot.capturedAt(), snapshot.outboundTransports(),
+                snapshot.inboundTransports(), snapshot.hotels().candidates(), snapshot.searchedAtByCandidateId());
     }
 
 
+
+    /** 订单编号来自模型时，只能查询当前用户所属的差旅单。 */
+    private TravelOrder requireOrder(String userId, String orderId) {
+        Assert.isTrue(StringUtils.isNoneBlank(userId, orderId), () -> parameterError("用户和差旅单标识不能为空"));
+        TravelOrder order = travelOrderDomainService.findByOrderIdAndUserId(orderId.trim(), userId.trim());
+        Assert.notNull(order, () -> parameterError("未找到当前用户的差旅单"));
+        return order;
+    }
 
     private BusinessRuntimeException parameterError(String message) {
         return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
@@ -172,19 +231,19 @@ public class ItineraryPlanApplicationService {
     /**
      * 构造本次往返规划需要的五个候选分组，并一次性读取固定快照。
      */
-    private ItineraryCandidateSnapshot loadCandidateSnapshot(ItineraryPlanRequest request, CandidateOwner owner) {
-        ItineraryCandidateGroups groups = ItineraryCandidateGroups.roundTrip(owner,
+    private ItineraryCandidateSnapshot loadCandidateSnapshot(ItineraryPlanRequest request) {
+        ItineraryCandidateGroups groups = ItineraryCandidateGroups.roundTrip(request.getUserId(), request.getTravelOrderId(),
                 request.getOrigin(), request.getDestination(), request.getDepartureDate(),
                 request.getReturnDate(), request.getAdultCount(), request.getChildAges());
         return candidateRepository.loadSnapshot(groups);
     }
 
     /**
-     * 按当前用户验证可选差旅单引用。模型只提供标识，服务端查询结果才是可信审核依据。
+     * 按当前用户验证差旅单引用。模型只提供标识，服务端查询结果才是可信审核依据。
      */
     private R<TravelOrderReference> resolveTravelOrderReference(ItineraryPlanRequest request) {
         if (StringUtils.isBlank(request.getTravelOrderId())) {
-            return R.success(null);
+            return R.failed(ResultCode.PARAMS_ERROR.getCode(), "行程规划需要差旅单ID");
         }
 
         TravelOrder source = travelOrderDomainService.findByOrderIdAndUserId(
@@ -198,10 +257,21 @@ public class ItineraryPlanApplicationService {
             return R.failed(ResultCode.INVALID_DATA.getCode(),
                     "关联差旅单缺少单号、状态、城市或日期，无法建立可信规划关联");
         }
+        if (source.getStatus() != TravelOrderStatus.DRAFT && source.getStatus() != TravelOrderStatus.SUBMITTED
+                && source.getStatus() != TravelOrderStatus.APPROVED) {
+            return R.failed(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "当前差旅单状态不支持行程规划");
+        }
         try {
             TravelOrderReference travelOrder = toTravelOrderReference(source);
             if (travelOrder.returnDate().isBefore(travelOrder.departureDate())) {
                 return R.failed(ResultCode.INVALID_DATA.getCode(), "关联差旅单的出发日期不能晚于返回日期");
+            }
+            // 与搜索候选分组使用相同的城市标识，避免校验通过后读取到另一组候选。
+            if (!StringUtils.equals(request.getOrigin(), travelOrder.origin())
+                    || !StringUtils.equals(request.getDestination(), travelOrder.destination())
+                    || !Objects.equals(request.getDepartureDate(), travelOrder.departureDate())
+                    || !Objects.equals(request.getReturnDate(), travelOrder.returnDate())) {
+                return R.failed(ResultCode.PARAMS_ERROR.getCode(), "规划城市和日期必须与差旅单一致");
             }
             return R.success(travelOrder);
         } catch (DateTimeParseException e) {

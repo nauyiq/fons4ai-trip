@@ -130,7 +130,8 @@ public class ItineraryPlanPageViewAssembler {
         String location = display(option.origin()) + " → " + display(option.destination());
         String schedule = formatDateTime(option.departureTime()) + " → " + formatDateTime(option.arrivalTime());
         String details = "承运方：" + display(option.carrier()) + " · 舱位/席别：" + display(option.cabinClass())
-                + " · 退改：" + display(option.refundPolicy());
+                + " · 退改：" + display(option.refundPolicy())
+                + " · 报价查询时间：" + formatDateTime(option.searchedAt());
         return new ItineraryTravelItemView(title, headline, location, schedule, details,
                 formatMoney(option.price(), currency));
     }
@@ -145,7 +146,8 @@ public class ItineraryPlanPageViewAssembler {
         String breakfast = hotel.breakfastIncluded() == null ? MISSING
                 : hotel.breakfastIncluded() ? "含早餐" : "不含早餐";
         String details = "每晚：" + formatMoney(hotel.pricePerNight(), currency)
-                + " · 早餐：" + breakfast + " · 取消：" + display(hotel.cancelPolicy());
+                + " · 早餐：" + breakfast + " · 取消：" + display(hotel.cancelPolicy())
+                + " · 报价查询时间：" + formatDateTime(hotel.searchedAt());
         return new ItineraryTravelItemView("住宿", display(hotel.name()), location, schedule, details,
                 formatMoney(metrics == null ? null : metrics.hotelTotalPrice(), currency));
     }
@@ -155,6 +157,7 @@ public class ItineraryPlanPageViewAssembler {
             case PASS -> "pass";
             case WARNING -> "warning";
             case BLOCKED -> "blocked";
+            default -> throw SystemIntervalException.of("不支持的行程审核结论：" + verdict);
         };
     }
 

@@ -20,7 +20,6 @@ import com.fons.cloud.ai.trip.common.constants.ChatMessageContentType;
 import com.fons.cloud.ai.trip.common.constants.ChatRole;
 import com.fons.cloud.ai.trip.common.constants.TaskState;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.ai.trip.common.request.ConversationInterruptRequest;
 import com.fons.cloud.ai.trip.common.request.ConversationReplayRequest;
@@ -187,9 +186,7 @@ public class ConversationApplicationService {
             terminalMessages.subscribe(ignored -> {
             }, error ->
                     log.error("[CHAT]实际执行收口或会话占用清理失败，pipelineRunId:{}", pipelineRunId, error));
-            return chatStreamOutputAdapter.adapt(run,
-                            new CandidateOwner(aggregate.getConversation().getUserId(), aggregate.getConversationId()),
-                            terminalMessages)
+            return chatStreamOutputAdapter.adapt(run, aggregate.getConversationId(), terminalMessages)
                     .doOnCancel(run::cancel);
         });
     }

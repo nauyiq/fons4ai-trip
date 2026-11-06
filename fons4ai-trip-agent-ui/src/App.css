@@ -964,6 +964,24 @@ html, body {
   width: 100%;
 }
 
+.published-plan-content {
+  margin-top: 10px;
+  width: min(100%, 960px);
+}
+
+.published-plan-content p {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.published-plan-iframe {
+  width: 100%;
+  height: 600px;
+  border: 1px solid #e0e7ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .booking-card {
   background: #fff;
   border: 1.5px solid #d6e8fb;

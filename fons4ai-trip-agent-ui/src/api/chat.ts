@@ -304,7 +304,7 @@ export async function sendDebugAgentMessageSSE(
 }
 
 /** Trip 普通接口使用 R<T> 包装；HTTP 200 不等于业务查询成功。 */
-async function readTripResponse<T>(res: Response): Promise<T> {
+export async function readTripResponse<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new TripApiError('UNAUTHORIZED');
   let body: { success: boolean; code?: string; message?: string; data: T };
   try { body = await res.json(); } catch { throw new TripApiError(`HTTP ${res.status}：服务响应无法解析`); }

@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS `travel_order` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '差旅申请单';
 
 
+CREATE TABLE IF NOT EXISTS `travel_order_itinerary_plan` (
+    `order_id`        VARCHAR(64)  NOT NULL COMMENT '关联差旅单ID',
+    `plan_snapshot`   JSON         NOT NULL COMMENT '最新已发布的行程规划快照',
+    `review_snapshot` JSON         NOT NULL COMMENT '最新已发布方案的审核快照',
+    `plan_html_url`   VARCHAR(512) NOT NULL COMMENT '行程方案HTML的MinIO对象key',
+    `created`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`order_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '差旅单最新已发布行程方案';
+
+
 CREATE TABLE IF NOT EXISTS `approval_record` (
     `process_instance_id` VARCHAR(64)   NOT NULL COMMENT '审批流程实例ID',
     `user_id`             VARCHAR(64)   NOT NULL COMMENT '申请人ID',
@@ -60,6 +71,8 @@ CREATE TABLE IF NOT EXISTS `user_profile` (
     `id_number`     VARCHAR(64)  DEFAULT NULL COMMENT '证件号码（身份证/护照等），用于机票预订',
     `phone`         VARCHAR(32)  DEFAULT NULL COMMENT '手机号，用于机票预订联系人',
     `gender`        VARCHAR(4)   DEFAULT NULL COMMENT '性别：M-男，F-女',
+    `travel_preferences` JSON DEFAULT NULL COMMENT '结构化差旅偏好及逐项确认来源',
+    `preference_version` BIGINT NOT NULL DEFAULT 0 COMMENT '差旅偏好乐观锁版本',
     `created`        DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`user_id`)

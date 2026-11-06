@@ -80,10 +80,8 @@ public class TravelOrderView implements Serializable {
      */
     private Boolean international;
 
-    /**
-     * 行程方案的HTML URL
-     */
-    private String planHtmlUrl;
+    /** 是否存在该差旅单已发布的行程方案。 */
+    private boolean hasPlan;
 
     /**
      * 审批记录ID
@@ -137,10 +135,9 @@ public class TravelOrderView implements Serializable {
         builder.purpose(order.getPurpose());
         builder.status(order.getStatus() == null ? null : order.getStatus().getCode());
         builder.statusLabel(order.getStatus() == null ? null : order.getStatus().getLabel());
-        builder.created(order.getCreated().getTime());
-        builder.updated(order.getUpdated().getTime());
+        builder.created(order.getCreated() == null ? null : order.getCreated().getTime());
+        builder.updated(order.getUpdated() == null ? null : order.getUpdated().getTime());
         builder.international(InternationalMatcher.isInternational(order.getDestination()));
-        builder.planHtmlUrl(order.getPlanHtmlUrl());
 
         // 审批记录信息
         if (approvalRecord != null) {
@@ -148,8 +145,8 @@ public class TravelOrderView implements Serializable {
             builder.approvalStatus(approvalRecord.getStatus() == null ? null : approvalRecord.getStatus().getCode());
             builder.approvalStatusLabel(approvalRecord.getStatus() == null ? null : approvalRecord.getStatus().getLabel());
             builder.approvalRemark(approvalRecord.getRemark());
-            builder.approvalSubmitTime(approvalRecord.getCreated().getTime());
-            builder.approvalUpdateTime(approvalRecord.getUpdated().getTime());
+            builder.approvalSubmitTime(approvalRecord.getCreated() == null ? null : approvalRecord.getCreated().getTime());
+            builder.approvalUpdateTime(approvalRecord.getUpdated() == null ? null : approvalRecord.getUpdated().getTime());
         }
 
         // 预订记录信息
@@ -167,7 +164,7 @@ public class TravelOrderView implements Serializable {
                         .platform(booking.getPlatform())
                         .externalOrderNo(booking.getExternalOrderNo())
                         .externalStatus(booking.getExternalStatus())
-                        .paymentStatus(booking.getPaymentStatus().getCode())
+                        .paymentStatus(booking.getPaymentStatus() == null ? null : booking.getPaymentStatus().getCode())
                         .startTime(booking.getStartTime() == null ? null : booking.getStartTime().getTime())
                         .endTime(booking.getEndTime() == null ? null : booking.getEndTime().getTime())
                         .bookedAt(booking.getBookedAt() == null ? null : booking.getBookedAt().getTime())

@@ -60,10 +60,12 @@ public final class ItineraryPlanCalculation {
      *
      * @param request 已归一化并通过候选引用校验的规划请求
      * @param combinations 已完成可计算性和时间顺序过滤的组合
+     * @param snapshot 本次候选快照，记录各供应商报价获取时间
      * @return 可持久化并供后续审核、展示使用的完整结果
      */
     public static ItineraryPlanningResult calculate(ItineraryPlanRequest request,
-                                                    List<ItineraryPlanCombination> combinations) {
+                                                    List<ItineraryPlanCombination> combinations,
+                                                    ItineraryCandidateSnapshot snapshot) {
         // 1. 逐个组合计算不依赖候选池相对位置的原始结果：
         //    三项候选的偏好平均分、政策违规与提醒、以及红眼/晚到达/长通勤/天气等原始体验分。
         List<RawCombination> rawCombinations = combinations.stream()
@@ -87,7 +89,7 @@ public final class ItineraryPlanCalculation {
 
         // 4. 分别选择综合最佳、时间优选、价格优选和偏好最佳组合。
         //    同一组合命中多个维度时合并标签，避免向后续审核和展示重复输出相同行程。
-        List<Proposal> proposals = buildProposals(scoredCombinations);
+        List<Proposal> proposals = buildProposals(scoredCombinations, snapshot);
 
         // 5. 组装可持久化的完整规划结果，保存实际请求、政策、权重、组合数量和代表方案快照。
         //    planId用于后续读取与审核，generatedAt统一使用UTC时间。
@@ -293,7 +295,7 @@ public final class ItineraryPlanCalculation {
                 .divide(range.max().subtract(range.min()), 2, RoundingMode.HALF_UP);
     }
 
-    private static List<Proposal> buildProposals(List<ScoredCombination> combinations) {
+    private static List<Proposal> buildProposals(List<ScoredCombination> combinations, ItineraryCandidateSnapshot snapshot) {
         Map<String, ProposalSelection> selections = new LinkedHashMap<>();
         mergeSelection(selections, pickMax(combinations, ScoredCombination::overall,
                 ScoredCombination::preferenceScore), ProposalTag.OVERALL_BEST);
@@ -318,7 +320,7 @@ public final class ItineraryPlanCalculation {
         List<Proposal> proposals = new ArrayList<>();
         for (int index = 0; index < ordered.size(); index++) {
             ProposalSelection selection = ordered.get(index);
-            proposals.add(toProposal("proposal_" + (index + 1), selection));
+            proposals.add(toProposal("proposal_" + (index + 1), selection, snapshot));
         }
         return List.copyOf(proposals);
     }
@@ -385,7 +387,7 @@ public final class ItineraryPlanCalculation {
         selection.tags().add(tag);
     }
 
-    private static Proposal toProposal(String proposalId, ProposalSelection selection) {
+    private static Proposal toProposal(String proposalId, ProposalSelection selection, ItineraryCandidateSnapshot snapshot) {
         ScoredCombination scored = selection.combination();
         ItineraryPlanCombination combination = scored.combination();
         PolicyResult policy = scored.raw().policy();
@@ -393,9 +395,9 @@ public final class ItineraryPlanCalculation {
         return new Proposal(
                 proposalId,
                 List.copyOf(selection.tags()),
-                transportOption(combination.outbound()),
-                hotelOption(combination.hotel()),
-                transportOption(combination.inbound()),
+                transportOption(combination.outbound(), snapshot),
+                hotelOption(combination.hotel(), snapshot),
+                transportOption(combination.inbound(), snapshot),
                 new ItineraryPlanningResult.Metrics(
                         combination.metrics().hotelTotalPrice(), combination.metrics().totalPrice(),
                         combination.metrics().totalTransitMinutes(), combination.metrics().stayHours()),
@@ -405,19 +407,19 @@ public final class ItineraryPlanCalculation {
                 policy.violations(), policy.warnings(), experience.flags());
     }
 
-    private static TransportOption transportOption(TransportCandidate candidate) {
+    private static TransportOption transportOption(TransportCandidate candidate, ItineraryCandidateSnapshot snapshot) {
         return new TransportOption(candidate.candidateId(), candidate.type(), candidate.carrier(), candidate.code(),
                 candidate.origin(), candidate.destination(), candidate.departureTime(), candidate.arrivalTime(),
                 candidate.transitMinutes(), candidate.price().amount(), candidate.cabinClass(), candidate.direct(),
-                candidate.refundPolicy());
+                candidate.refundPolicy(), snapshot.searchedAt(candidate.candidateId()));
     }
 
-    private static HotelOption hotelOption(HotelCandidate candidate) {
+    private static HotelOption hotelOption(HotelCandidate candidate, ItineraryCandidateSnapshot snapshot) {
         return new HotelOption(candidate.candidateId(), candidate.name(), candidate.city(),
                 candidate.brand(), candidate.starRating(),
                 candidate.roomType(), candidate.checkInDate(), candidate.checkOutDate(), candidate.nights(),
                 candidate.price().amount(), candidate.distanceKm(), candidate.breakfastIncluded(),
-                candidate.cancelPolicy());
+                candidate.cancelPolicy(), snapshot.searchedAt(candidate.candidateId()));
     }
 
     private static String formatAmount(double amount) {

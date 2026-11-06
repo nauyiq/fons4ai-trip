@@ -70,6 +70,8 @@ mvn "-Dmaven.test.skip=true" compile
 mvn "-Dmaven.test.skip=true" spring-boot:run
 ```
 
+首次接入差旅偏好时，先手动执行 [偏好迁移](fons4ai-trip-agent-service/src/main/resources/db/migration/20261026_travel_preferences.sql) 并确认两列可用；已迁移环境无需重复执行。偏好随应用正常接入，不需要单独开关。页面与查询/修改工具共用 CRUD，原生记忆保留为补充参考；R2.3 沿用原列，无新 DDL。保留原有模型、ASK 等配置，重启加载代码；当前验收进度见 [任务规划](docs/development/features/20261022-native-memory-preferences-permissions/任务规划.md)。
+
 前端在 `fons4ai-trip-agent-ui` 目录操作：
 
 ```powershell

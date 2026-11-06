@@ -18,6 +18,7 @@ import com.fons.cloud.ai.trip.common.vo.TravelOrderView;
 import com.fons.cloud.ai.trip.domain.entity.ApprovalRecord;
 import com.fons.cloud.ai.trip.domain.entity.BookingRecord;
 import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
+import com.fons.cloud.ai.trip.domain.mapper.TravelOrderItineraryPlanMapper;
 import com.fons.cloud.ai.trip.domain.service.ApprovalRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.BookingRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
@@ -50,6 +51,7 @@ public class TravelBusinessApplicationService {
     private final TravelOrderDomainService travelOrderDomainService;
     private final ApprovalRecordDomainService approvalRecordDomainService;
     private final BookingRecordDomainService bookingRecordDomainService;
+    private final TravelOrderItineraryPlanMapper itineraryPlanMapper;
 
     /**
      * 创建差旅单和审批记录
@@ -171,6 +173,17 @@ public class TravelBusinessApplicationService {
                     null, "无字段变更", "提交的信息与当前差旅单一致，未做任何修改。", List.of(), null));
         }
 
+        // 只有行程条件变化时，已发布规划才需要失效。
+        boolean itineraryChanged = (StringUtils.isNotBlank(request.getDestination()) && !StringUtils.equals(request.getDestination(), order.getDestination()))
+                || (StringUtils.isNotBlank(request.getDepartureCity()) && !StringUtils.equals(request.getDepartureCity(), order.getDepartureCity()))
+                || (StringUtils.isNotBlank(request.getDepartureDate()) && !StringUtils.equals(request.getDepartureDate(), order.getDepartureDate()))
+                || (StringUtils.isNotBlank(request.getReturnDate()) && !StringUtils.equals(request.getReturnDate(), order.getReturnDate()));
+        String originalDestination = order.getDestination();
+        String originalDepartureCity = order.getDepartureCity();
+        String originalDepartureDate = order.getDepartureDate();
+        String originalReturnDate = order.getReturnDate();
+        String originalPurpose = order.getPurpose();
+
         // 仅更新用户提供的字段，汇总本次修改内容
         List<String> updatedFields = updatedOrderFields(request, order);
 
@@ -178,6 +191,16 @@ public class TravelBusinessApplicationService {
         String oldApprovalId = order.getApprovalId();
         ModifyTravelApprovalResult outcome = transactionTemplate.execute(status -> {
             try {
+                // 修改和方案发布先锁同一主单；快照过期时拒绝覆盖其他请求的结果。
+                TravelOrder current = travelOrderDomainService.findByOrderIdAndUserIdForUpdate(request.getOrderId(), request.getUserId());
+                Assert.isTrue(current != null && current.getStatus() == orderStatus
+                                && StringUtils.equals(current.getApprovalId(), oldApprovalId)
+                                && StringUtils.equals(current.getDestination(), originalDestination)
+                                && StringUtils.equals(current.getDepartureCity(), originalDepartureCity)
+                                && StringUtils.equals(current.getDepartureDate(), originalDepartureDate)
+                                && StringUtils.equals(current.getReturnDate(), originalReturnDate)
+                                && StringUtils.equals(current.getPurpose(), originalPurpose),
+                        () -> SystemIntervalException.of("差旅单已发生变化，请重新查询后修改"));
                 boolean oldApprovalCancelled = false;
                 if (StringUtils.isNotBlank(oldApprovalId)) {
                     ApprovalRecord oldRecord = approvalRecordDomainService.getById(oldApprovalId);
@@ -193,6 +216,10 @@ public class TravelBusinessApplicationService {
                 order.setStatus(TravelOrderStatus.DRAFT);
                 order.setApprovalId(null);
                 Assert.isTrue(travelOrderDomainService.updateById(order), () -> SystemIntervalException.of("差旅单字段更新失败"));
+                if (itineraryChanged) {
+                    // 与订单修改同事务删除当前关联；回滚时保留原方案。
+                    itineraryPlanMapper.deleteById(order.getOrderId());
+                }
 
                 // 发起新的审批
                 ApprovalRecord newRecord = approvalRecordDomainService.submit(order);
@@ -233,18 +260,26 @@ public class TravelBusinessApplicationService {
         }
 
         // 2. 批量查询差旅单关联的审批信息
-        List<ApprovalRecord> records = approvalRecordDomainService.listByIds(travelOrders.stream().map(TravelOrder::getApprovalId).filter(StringUtils::isNotBlank).toList());
+        List<String> approvalIds = travelOrders.stream().map(TravelOrder::getApprovalId).filter(StringUtils::isNotBlank).toList();
+        // 草稿可能没有审批单；避免对空 ID 列表执行批量查询。
+        List<ApprovalRecord> records = approvalIds.isEmpty() ? List.of() : approvalRecordDomainService.listByIds(approvalIds);
         Map<String, ApprovalRecord> approvalMap = CollectionUtils.isEmpty(records) ? new HashMap<>() : records.stream().collect(Collectors.toMap(ApprovalRecord::getProcessInstanceId, Function.identity()));
 
         // 3. 查询用户预订记录
         List<BookingRecord> bookingRecords = bookingRecordDomainService.findListByUserIdAndOrderIds(userId, travelOrders.stream().map(TravelOrder::getOrderId).toList());
         Map<String, List<BookingRecord>> bookingMap = CollectionUtils.isEmpty(bookingRecords) ? new HashMap<>() : bookingRecords.stream().collect(Collectors.groupingBy(BookingRecord::getTravelOrderId));
 
+        // 只读取已发布的单号，订单列表不加载大体积规划和审核快照。
+        Set<String> publishedOrderIds = new HashSet<>(itineraryPlanMapper.findPublishedOrderIds(
+                travelOrders.stream().map(TravelOrder::getOrderId).toList()));
+
         // 构造响应数据
         return R.ok(travelOrders.stream().map(order -> {
             ApprovalRecord record = approvalMap.get(order.getApprovalId());
             List<BookingRecord> bookingRecordList = bookingMap.get(order.getOrderId());
-            return TravelOrderView.of(order, record, bookingRecordList);
+            TravelOrderView view = TravelOrderView.of(order, record, bookingRecordList);
+            view.setHasPlan(publishedOrderIds.contains(order.getOrderId()));
+            return view;
         }).toList());
     }
 

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   fetchMyTravelOrders,
-  fetchPlanHtml,
   deleteBooking,
   cancelBooking,
   type MyTravelBooking,
@@ -10,6 +9,7 @@ import {
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useUiStore } from '../store/uiStore';
+import PublishedPlan from './PublishedPlan';
 
 /** 差旅单状态的颜色映射，复用 admin-status 的样式类 */
 const ORDER_STATUS_CLASS: Record<string, string> = {
@@ -310,21 +310,6 @@ function OrderDetail({
     }
   };
 
-  const handleViewPlan = async () => {
-    try {
-      const html = await fetchPlanHtml(order.orderId);
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    } catch (err: any) {
-      if (err?.message === 'UNAUTHORIZED') {
-        alert('登录已过期，请重新登录');
-        return;
-      }
-      alert('查看行程方案失败，可能方案尚未生成');
-    }
-  };
   const bookingsByType = useMemo(() => {
     const groups: Record<string, MyTravelBooking[]> = {};
     for (const b of order.bookings) {
@@ -411,6 +396,12 @@ function OrderDetail({
         )}
       </div>
 
+      <div className="travel-detail-block">
+        <div className="travel-detail-label">行程方案</div>
+        {order.hasPlan ? <PublishedPlan key={order.orderId} orderId={order.orderId} />
+          : <div className="travel-detail-empty">该差旅单暂无已发布行程方案</div>}
+      </div>
+
       <div className="travel-actions">
         {canReimburse(order) && (
           <button className="travel-action-btn primary" onClick={() => onAction(prompts.reimburse)}>
@@ -425,11 +416,6 @@ function OrderDetail({
         {order.bookingCount === 0 && order.status !== 'CANCELLED' && (
           <button className="travel-action-btn" onClick={() => onAction(prompts.plan)}>
             🗺 规划行程
-          </button>
-        )}
-        {order.planHtmlUrl && (
-          <button className="travel-action-btn" onClick={handleViewPlan}>
-            📋 查看行程
           </button>
         )}
         <button className="travel-action-btn" onClick={() => onAction(prompts.weather)}>

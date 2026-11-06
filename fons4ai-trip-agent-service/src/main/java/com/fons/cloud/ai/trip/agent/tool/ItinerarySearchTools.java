@@ -5,7 +5,6 @@ import com.fons.cloud.ai.trip.common.constants.FlightSearchMode;
 import com.fons.cloud.ai.trip.common.constants.ItinerarySearchProvider;
 import com.fons.cloud.ai.trip.common.constants.TrainSearchSort;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
-import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.ai.trip.common.dto.HotelCandidate;
 import com.fons.cloud.ai.trip.common.dto.SearchPriceRange;
 import com.fons.cloud.ai.trip.common.dto.SearchTimeRange;
@@ -34,10 +33,11 @@ import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CancellationException;
 
 /**
  * 行程实时搜索工具集。模型只提供业务搜索条件，供应商、凭据和候选归属均由服务端确定。
- * 搜索结果由应用服务转换为Trip标准候选并保存到当前用户、当前会话的候选池。
+ * 普通查询直接返回结果；关联差旅单的规划搜索才保存到候选池。
  *
  * @author hongqy
  */
@@ -51,11 +51,12 @@ public class ItinerarySearchTools implements BaseTool {
 
     private final ItinerarySearchApplicationService itinerarySearchApplicationService;
 
-    @Tool(name = "search_flights", description = "搜索国内单程机票并返回当前页的Trip标准候选，结果会自动保存到当前会话候选池。"
+    @Tool(name = "search_flights", description = "搜索国内单程机票并返回当前页的Trip标准候选；仅传入差旅单号的规划搜索会保存候选。"
             + "SUCCESS表示本次搜索完成；候选看data.candidates，翻页看data.pagination。"
             + "翻页时必须保留原搜索条件，并传上一页返回的continuationToken（如有）。")
     public R<ItinerarySearchResult<TransportCandidate>> searchFlights(
             RuntimeContext context,
+            @ToolParam(name = "travel_order_id", description = "行程规划使用的真实差旅单号；普通查询或预算不传", required = false) String travelOrderId,
             @ToolParam(name = "origin", description = "出发城市，必填，如上海") String origin,
             @ToolParam(name = "destination", description = "到达城市，必填，不能与出发城市相同") String destination,
             @ToolParam(name = "departure_date", description = "出发日期，YYYY-MM-DD") String departureDate,
@@ -74,7 +75,7 @@ public class ItinerarySearchTools implements BaseTool {
                 userId, conversationId, origin, destination, departureDate, pageNumber);
 
         try {
-            CandidateOwner owner = candidateOwner(userId, conversationId);
+            requireUser(userId);
             FlightSearchRequest request = FlightSearchRequest.builder()
                     .origin(StringUtils.trimToNull(origin))
                     .destination(StringUtils.trimToNull(destination))
@@ -86,21 +87,24 @@ public class ItinerarySearchTools implements BaseTool {
                     .page(pageRequest(pageNumber, continuationToken))
                     .build();
             ItinerarySearchResult<TransportCandidate> result = itinerarySearchApplicationService.searchFlights(
-                    owner, SEARCH_PROVIDER, request);
-            return success("机票", result);
+                    userId, travelOrderId, SEARCH_PROVIDER, request);
+            return success("机票", result, StringUtils.isNotBlank(travelOrderId));
         } catch (BusinessRuntimeException e) {
             return businessFailure("search_flights", userId, e);
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[TOOL][search_flights] 机票搜索失败，userId={}", userId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), "机票搜索失败，不能据此判断没有可用航班，请稍后重试。");
         }
     }
 
-    @Tool(name = "search_trains", description = "搜索单程火车票并返回当前页候选；同一车次的不同席别可能是不同候选，结果会自动保存。"
+    @Tool(name = "search_trains", description = "搜索单程火车票并返回当前页候选；同一车次的不同席别可能是不同候选，仅传入差旅单号的规划搜索会保存候选。"
             + "SUCCESS表示本次搜索完成；候选看data.candidates，翻页看data.pagination。"
             + "翻页必须保留原条件并传上一页的continuationToken。")
     public R<ItinerarySearchResult<TransportCandidate>> searchTrains(
             RuntimeContext context,
+            @ToolParam(name = "travel_order_id", description = "行程规划使用的真实差旅单号；普通查询或预算不传", required = false) String travelOrderId,
             @ToolParam(name = "origin", description = "出发城市，必填，如上海") String origin,
             @ToolParam(name = "destination", description = "到达城市，必填，不能与出发城市相同") String destination,
             @ToolParam(name = "departure_date", description = "出发日期，YYYY-MM-DD") String departureDate,
@@ -117,7 +121,7 @@ public class ItinerarySearchTools implements BaseTool {
                 userId, conversationId, origin, destination, departureDate, pageNumber);
 
         try {
-            CandidateOwner owner = candidateOwner(userId, conversationId);
+            requireUser(userId);
             TrainSearchRequest request = TrainSearchRequest.builder()
                     .origin(StringUtils.trimToNull(origin))
                     .destination(StringUtils.trimToNull(destination))
@@ -128,21 +132,24 @@ public class ItinerarySearchTools implements BaseTool {
                     .page(pageRequest(pageNumber, continuationToken))
                     .build();
             ItinerarySearchResult<TransportCandidate> result = itinerarySearchApplicationService.searchTrains(
-                    owner, SEARCH_PROVIDER, request);
-            return success("火车票", result);
+                    userId, travelOrderId, SEARCH_PROVIDER, request);
+            return success("火车票", result, StringUtils.isNotBlank(travelOrderId));
         } catch (BusinessRuntimeException e) {
             return businessFailure("search_trains", userId, e);
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[TOOL][search_trains] 火车票搜索失败，userId={}", userId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), "火车票搜索失败，不能据此判断没有可用车次，请稍后重试。");
         }
     }
 
-    @Tool(name = "search_hotels", description = "搜索目的城市单间酒店并返回当前页Trip标准候选，结果会自动保存到当前会话候选池。"
+    @Tool(name = "search_hotels", description = "搜索目的城市单间酒店并返回当前页Trip标准候选；仅传入差旅单号的规划搜索会保存候选。"
             + "列表候选是起价，不能直接用于plan_itinerary；选定酒店后须用source.itemId调用search_hotel_rooms取得具体报价。"
             + "翻页必须保留原条件并传上一页的continuationToken。")
     public R<ItinerarySearchResult<HotelCandidate>> searchHotels(
             RuntimeContext context,
+            @ToolParam(name = "travel_order_id", description = "行程规划使用的真实差旅单号；普通查询或预算不传", required = false) String travelOrderId,
             @ToolParam(name = "city", description = "酒店所在城市，必填") String city,
             @ToolParam(name = "check_in_date", description = "入住日期，YYYY-MM-DD") String checkInDate,
             @ToolParam(name = "check_out_date", description = "离店日期，YYYY-MM-DD，必须晚于入住日期") String checkOutDate,
@@ -160,7 +167,7 @@ public class ItinerarySearchTools implements BaseTool {
                 userId, conversationId, city, checkInDate, checkOutDate, pageNumber);
 
         try {
-            CandidateOwner owner = candidateOwner(userId, conversationId);
+            requireUser(userId);
             HotelSearchRequest request = HotelSearchRequest.builder()
                     .city(StringUtils.trimToNull(city))
                     .checkInDate(parseDate(checkInDate, "check_in_date"))
@@ -173,10 +180,12 @@ public class ItinerarySearchTools implements BaseTool {
                     .page(pageRequest(pageNumber, continuationToken))
                     .build();
             ItinerarySearchResult<HotelCandidate> result = itinerarySearchApplicationService.searchHotels(
-                    owner, SEARCH_PROVIDER, request);
-            return success("酒店", result);
+                    userId, travelOrderId, SEARCH_PROVIDER, request);
+            return success("酒店", result, StringUtils.isNotBlank(travelOrderId));
         } catch (BusinessRuntimeException e) {
             return businessFailure("search_hotels", userId, e);
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[TOOL][search_hotels] 酒店搜索失败，userId={}", userId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), "酒店搜索失败，不能据此判断没有可用酒店，请稍后重试。");
@@ -184,11 +193,12 @@ public class ItinerarySearchTools implements BaseTool {
     }
 
     @Tool(name = "search_hotel_rooms", description = "查询指定酒店的具体房型报价。必须先调用search_hotels，"
-            + "再把所选酒店候选source.itemId作为hotel_id传入。每个房型报价方案会生成独立候选并自动保存，"
+            + "再把所选酒店候选source.itemId作为hotel_id传入。每个房型报价方案会生成独立候选，仅传入差旅单号的规划搜索会保存候选，"
             + "必须读取price.basis和warnings；UNKNOWN表示计价口径未确认，只能展示原始金额，不能乘晚数或参与住宿总价计算。"
             + "此工具不返回可长期复用的预订令牌。")
     public R<ItinerarySearchResult<HotelCandidate>> searchHotelRooms(
             RuntimeContext context,
+            @ToolParam(name = "travel_order_id", description = "行程规划使用的真实差旅单号；普通查询或预算不传", required = false) String travelOrderId,
             @ToolParam(name = "hotel_id", description = "search_hotels候选source.itemId中的酒店标识，必填") String hotelId,
             @ToolParam(name = "city", description = "酒店所在城市，须与原酒店搜索条件一致") String city,
             @ToolParam(name = "check_in_date", description = "入住日期，YYYY-MM-DD，须与原酒店搜索条件一致") String checkInDate,
@@ -201,7 +211,7 @@ public class ItinerarySearchTools implements BaseTool {
                 userId, conversationId, hotelId, city, checkInDate, checkOutDate);
 
         try {
-            CandidateOwner owner = candidateOwner(userId, conversationId);
+            requireUser(userId);
             HotelRoomSearchRequest request = HotelRoomSearchRequest.builder()
                     .hotelItemId(StringUtils.trimToNull(hotelId))
                     .city(StringUtils.trimToNull(city))
@@ -211,14 +221,17 @@ public class ItinerarySearchTools implements BaseTool {
                     .childAges(childAges)
                     .build();
             ItinerarySearchResult<HotelCandidate> result = itinerarySearchApplicationService.searchHotelRooms(
-                    owner, SEARCH_PROVIDER, request);
+                    userId, travelOrderId, SEARCH_PROVIDER, request);
             int count = result.candidates().size();
             String message = count == 0
                     ? "酒店房型报价查询完成，当前没有可用的具体房型报价。"
-                    : "酒店房型报价查询完成，返回" + count + "个具体报价并已保存，可继续规划。";
+                    : "酒店房型报价查询完成，返回" + count + "个具体报价"
+                    + (StringUtils.isNotBlank(travelOrderId) ? "并已保存，可继续规划。" : "。");
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
         } catch (BusinessRuntimeException e) {
             return businessFailure("search_hotel_rooms", userId, e);
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[TOOL][search_hotel_rooms] 酒店房型报价查询失败，userId={}", userId, e);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(),
@@ -284,29 +297,31 @@ public class ItinerarySearchTools implements BaseTool {
         }
     }
 
-    private <T> R<ItinerarySearchResult<T>> success(String label, ItinerarySearchResult<T> result) {
+    private <T> R<ItinerarySearchResult<T>> success(String label, ItinerarySearchResult<T> result, boolean savedForPlanning) {
         int count = result.candidates().size();
         String message = count == 0
                 ? label + "搜索完成，本页没有匹配候选，不代表搜索服务失败。"
-                : label + "搜索完成，本页返回" + count + "个候选并已保存；是否继续翻页请查看data.pagination。";
+                : label + "搜索完成，本页返回" + count + "个候选"
+                + (savedForPlanning ? "并已保存" : "") + "；是否继续翻页请查看data.pagination。";
         return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
     }
 
     private <T> R<T> businessFailure(String toolName, String userId, BusinessRuntimeException e) {
         log.warn("[TOOL][{}] 搜索未完成，userId={}, code={}", toolName, userId, e.getCode());
-        TripAgentToolResultCode code = ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())
-                ? TripAgentToolResultCode.INVALID_PARAM : TripAgentToolResultCode.INTERNAL_ERROR;
+        TripAgentToolResultCode code = TripAgentToolResultCode.INTERNAL_ERROR;
+        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())) {
+            code = TripAgentToolResultCode.INVALID_PARAM;
+        } else if (TripAgentToolResultCode.INVALID_STATE.getCode().equals(e.getCode())) {
+            code = TripAgentToolResultCode.INVALID_STATE;
+        }
         return R.failed(code.getCode(), e.getMessage());
     }
 
-    private CandidateOwner candidateOwner(String userId, String conversationId) {
+    /** 用户身份来自运行上下文，不能由模型指定。 */
+    private void requireUser(String userId) {
         if (StringUtils.isBlank(userId)) {
             throw parameterError("user_id 不能为空");
         }
-        if (StringUtils.isBlank(conversationId)) {
-            throw parameterError("conversation_id 不能为空");
-        }
-        return new CandidateOwner(userId, conversationId);
     }
 
     private BusinessRuntimeException parameterError(String message) {

@@ -37,6 +37,14 @@ public class TravelOrderDomainServiceImpl extends ServiceImpl<TravelOrderMapper,
     }
 
     @Override
+    public TravelOrder findByOrderIdAndUserIdForUpdate(String orderId, String userId) {
+        return getOne(Wrappers.lambdaQuery(TravelOrder.class)
+                .eq(TravelOrder::getOrderId, orderId)
+                .eq(TravelOrder::getUserId, userId)
+                .last("FOR UPDATE"));
+    }
+
+    @Override
     public List<TravelOrder> findByTravelDetailInfo(String userId, String departureCity, String destination, String departureDate) {
         return list(Wrappers.lambdaQuery(TravelOrder.class)
                 .eq(TravelOrder::getUserId, userId)
@@ -98,6 +106,17 @@ public class TravelOrderDomainServiceImpl extends ServiceImpl<TravelOrderMapper,
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CancelOderOutcome cancelWithApproval(TravelOrder order, String reason) {
+        // 先锁住主单并确认状态，避免并发修改或发布使用过期单据。
+        TravelOrder current = findByOrderIdAndUserIdForUpdate(order.getOrderId(), order.getUserId());
+        if (current == null || current.getStatus() != order.getStatus()
+                || !StringUtils.equals(current.getApprovalId(), order.getApprovalId())
+                || !StringUtils.equals(current.getDepartureCity(), order.getDepartureCity())
+                || !StringUtils.equals(current.getDestination(), order.getDestination())
+                || !StringUtils.equals(current.getDepartureDate(), order.getDepartureDate())
+                || !StringUtils.equals(current.getReturnDate(), order.getReturnDate())) {
+            throw SystemIntervalException.of("差旅单已发生变化，请重新查询后取消");
+        }
+        order = current;
         order.cancel();
         if (!this.updateById(order)) {
             // 取消订单失败直接返回结果

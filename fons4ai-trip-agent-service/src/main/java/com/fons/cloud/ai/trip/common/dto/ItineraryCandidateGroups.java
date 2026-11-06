@@ -9,7 +9,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * 应用层为一次规划构造的五个候选分组，全部使用相同的可信用户和根会话。
+ * 应用层为一次规划构造的五个候选分组，全部属于相同用户和差旅单。
  * 不含Redis Key；存储层据此批量读取，行程日期和入住人数由应用层决定。
  *
  * @param outboundFlights 去程机票分组
@@ -31,15 +31,17 @@ public record ItineraryCandidateGroups(ItineraryCandidateScope outboundFlights,
                         && inboundFlights.type() == BookingType.FLIGHT && inboundTrains.type() == BookingType.TRAIN
                         && hotels.type() == BookingType.HOTEL,
                 () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "规划候选分组类型不正确"));
-        CandidateOwner owner = outboundFlights.owner();
-        Assert.isTrue(List.of(outboundTrains, inboundFlights, inboundTrains, hotels).stream().allMatch(scope -> owner.equals(scope.owner())),
-                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "规划候选分组必须属于相同用户和会话"));
+        Assert.isTrue(List.of(outboundTrains, inboundFlights, inboundTrains, hotels).stream()
+                        .allMatch(scope -> outboundFlights.userId().equals(scope.userId())
+                                && outboundFlights.orderId().equals(scope.orderId())),
+                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "规划候选分组必须属于相同用户和差旅单"));
     }
 
     /**
      * 按单目的城市往返行程构造固定的五个候选分组。
      *
-     * @param owner 可信用户和会话归属
+     * @param userId 可信用户标识
+     * @param orderId 差旅单标识
      * @param origin 出发城市
      * @param destination 目的城市
      * @param departureDate 去程日期，同时作为酒店入住日期
@@ -48,7 +50,7 @@ public record ItineraryCandidateGroups(ItineraryCandidateScope outboundFlights,
      * @param childAges 酒店儿童年龄
      * @return 去返程机票、火车票及酒店候选分组
      */
-    public static ItineraryCandidateGroups roundTrip(CandidateOwner owner,
+    public static ItineraryCandidateGroups roundTrip(String userId, String orderId,
                                                       String origin,
                                                       String destination,
                                                       LocalDate departureDate,
@@ -56,15 +58,15 @@ public record ItineraryCandidateGroups(ItineraryCandidateScope outboundFlights,
                                                       int adultCount,
                                                       List<Integer> childAges) {
         return new ItineraryCandidateGroups(
-                ItineraryCandidateScope.transport(owner, BookingType.FLIGHT,
+                ItineraryCandidateScope.transport(userId, orderId, BookingType.FLIGHT,
                         origin, destination, departureDate),
-                ItineraryCandidateScope.transport(owner, BookingType.TRAIN,
+                ItineraryCandidateScope.transport(userId, orderId, BookingType.TRAIN,
                         origin, destination, departureDate),
-                ItineraryCandidateScope.transport(owner, BookingType.FLIGHT,
+                ItineraryCandidateScope.transport(userId, orderId, BookingType.FLIGHT,
                         destination, origin, returnDate),
-                ItineraryCandidateScope.transport(owner, BookingType.TRAIN,
+                ItineraryCandidateScope.transport(userId, orderId, BookingType.TRAIN,
                         destination, origin, returnDate),
-                ItineraryCandidateScope.hotel(owner, destination, departureDate,
+                ItineraryCandidateScope.hotel(userId, orderId, destination, departureDate,
                         returnDate, adultCount, childAges));
     }
 }

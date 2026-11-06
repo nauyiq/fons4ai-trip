@@ -6,6 +6,7 @@ package com.fons.cloud.ai.trip.common.response;
  * @param planId 可用于读取页面的规划标识
  * @param reviewId 页面对应的审核标识
  * @param recommendedProposalId 推荐方案标识
+ * @param orderId 已发布方案所属差旅单标识
  */
-public record ItineraryPlanPageReady(String planId, String reviewId, String recommendedProposalId) {
+public record ItineraryPlanPageReady(String planId, String reviewId, String recommendedProposalId, String orderId) {
 }

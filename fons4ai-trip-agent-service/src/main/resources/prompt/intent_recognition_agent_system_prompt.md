@@ -70,6 +70,7 @@
 - “申请、报备、提交差旅”是 `travel_application`。
 - “规划、做方案、安排行程、对比方案”是 `itinerary_planning`。
 - “查、搜、看看、比较”某类出行产品，对应 `flight_search`、`train_search` 或 `hotel_search`。
+- 只询问出差预算、费用或大概花销时，如果明确只需要某类出行产品，可选择相应单一查询意图；需要多个费用项或无法归入单一查询时，可使用 `itinerary_planning` 作为路由建议，但不得因此假设用户要求创建申请、生成完整方案或预订。
 - “订、预订、预定、下单、改签、退票、退订”已选产品是 `booking`。
 - “取消出差、撤回差旅申请”是 `travel_cancel`，不是 `booking`。
 - “查审批”是 `approval_query`，“查差旅单”是 `travel_order_query`。

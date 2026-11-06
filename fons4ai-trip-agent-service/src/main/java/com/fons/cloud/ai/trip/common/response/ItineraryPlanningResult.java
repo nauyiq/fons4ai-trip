@@ -45,7 +45,7 @@ public class ItineraryPlanningResult {
     private OffsetDateTime generatedAt;
 
     /**
-     * 本次规划关联的可信差旅单快照。独立规划时为 null；存在时表示服务端已按当前用户验证归属，
+     * 本次规划关联的可信差旅单快照。历史独立规划可能为null；新规划由服务端按当前用户验证归属，
      * 不表示差旅单已经审批通过，审核仍需判断其状态及与规划内容的一致性。
      */
     private TravelOrderReference sourceTravelOrder;
@@ -181,6 +181,7 @@ public class ItineraryPlanningResult {
      * @param cabinClass     供应商提供的舱位或席别原文，未知时为 null，不虚构等级
      * @param direct         是否直飞或直达，供应商未提供时为 null
      * @param refundPolicy   供应商提供的退改规则，未知时为 null，不写死“可退”或“不可退”
+     * @param searchedAt     从供应商获取此报价的时间，历史数据可能为空
      */
     public record TransportOption(
             String candidateId,
@@ -195,7 +196,8 @@ public class ItineraryPlanningResult {
             BigDecimal price,
             String cabinClass,
             Boolean direct,
-            String refundPolicy) {
+            String refundPolicy,
+            OffsetDateTime searchedAt) {
     }
 
     /**
@@ -214,6 +216,7 @@ public class ItineraryPlanningResult {
      * @param distanceToDestinationKm 距离实际到访地点的千米数，未获取时为 null，不能以 0 表示未知
      * @param breakfastIncluded       是否含早餐，未知时为 null
      * @param cancelPolicy            供应商提供的取消规则，未知时为 null
+     * @param searchedAt              从供应商获取此报价的时间，历史数据可能为空
      */
     public record HotelOption(
             String candidateId,
@@ -228,7 +231,8 @@ public class ItineraryPlanningResult {
             BigDecimal pricePerNight,
             BigDecimal distanceToDestinationKm,
             Boolean breakfastIncluded,
-            String cancelPolicy) {
+            String cancelPolicy,
+            OffsetDateTime searchedAt) {
     }
 
     /**

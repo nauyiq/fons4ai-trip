@@ -21,6 +21,9 @@ public interface TravelOrderDomainService extends IService<TravelOrder> {
      */
     TravelOrder findByOrderIdAndUserId(String orderId, String userId);
 
+    /** 事务内锁定当前用户的差旅单；修改、取消和发布使用相同锁顺序。 */
+    TravelOrder findByOrderIdAndUserIdForUpdate(String orderId, String userId);
+
     /**
      * 根据行程信息查询差旅单候选列表，包含各状态，不假定行程信息唯一。
      * @param userId         用户ID
