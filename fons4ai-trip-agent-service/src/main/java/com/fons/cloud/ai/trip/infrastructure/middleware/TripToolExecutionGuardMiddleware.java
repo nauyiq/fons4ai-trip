@@ -3,7 +3,7 @@ package com.fons.cloud.ai.trip.infrastructure.middleware;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
@@ -87,13 +87,13 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
         if (businessTools == null || nonBlockingTodoTools == null
                 || businessTools.stream().anyMatch(name -> name == null || name.isBlank())
                 || nonBlockingTodoTools.stream().anyMatch(name -> name == null || name.isBlank())) {
-            throw SystemIntervalException.of("工具执行约束的工具名称不能为空");
+            throw TripExceptions.system("工具执行约束的工具名称不能为空");
         }
         if (maxSameToolSystemFailures < 1) {
-            throw SystemIntervalException.of("同一工具系统失败上限必须大于0");
+            throw TripExceptions.system("同一工具系统失败上限必须大于0");
         }
         if (!businessTools.containsAll(nonBlockingTodoTools)) {
-            throw SystemIntervalException.of("可选工具必须属于受控业务工具白名单");
+            throw TripExceptions.system("可选工具必须属于受控业务工具白名单");
         }
         this.businessTools = Set.copyOf(businessTools);
         this.maxSameToolSystemFailures = maxSameToolSystemFailures;
@@ -105,7 +105,7 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
             Function<AgentInput, Flux<AgentEvent>> next) {
         return Flux.defer(() -> {
             if (!(agent instanceof ReActAgent nativeAgent) || context == null) {
-                throw SystemIntervalException.of("工具执行约束需要原生ReActAgent及本次运行上下文");
+                throw TripExceptions.system("工具执行约束需要原生ReActAgent及本次运行上下文");
             }
             adaptToolkit(nativeAgent.getToolkit());
             // 子Agent可能复制父上下文；必须重新创建，不能复用浅复制的可变失败记录。
@@ -168,12 +168,12 @@ public final class TripToolExecutionGuardMiddleware implements MiddlewareBase {
             }
             if (toolkit.getTool(name) instanceof GuardedTool existing) {
                 if (!sameConfiguration(existing.guard)) {
-                    throw SystemIntervalException.of("同一Agent不能注册不同的工具执行约束");
+                    throw TripExceptions.system("同一Agent不能注册不同的工具执行约束");
                 }
                 continue;
             }
             if (!(toolkit.getTool(name) instanceof ToolBase delegate)) {
-                throw SystemIntervalException.of("工具执行约束需要原生ToolBase：" + name);
+                throw TripExceptions.system("工具执行约束需要原生ToolBase：" + name);
             }
             adaptedTools.add(new GuardedTool(delegate, this));
         }

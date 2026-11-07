@@ -36,9 +36,8 @@ import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageHitlDomainService;
 import com.fons.cloud.ai.trip.domain.service.ChatRequestTraceDomainService;
 import com.fons.cloud.ai.trip.infrastructure.converter.ChatMessageConverter;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.BizException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.BsException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import com.fons.cloud.reactor.api.ReactiveTaskRun;
@@ -107,7 +106,7 @@ public class ConversationApplicationService {
 
         // 持久化聊天请求
         ChatMessageAggregate aggregate = persistChatRequest(request);
-        Assert.notNull(aggregate, () -> SystemIntervalException.of(ResultCode.SYSTEM_BUSY.getMessage()));
+        Assert.notNull(aggregate, () -> TripExceptions.system(ResultCode.SYSTEM_BUSY.getMessage()));
 
         // 构建Agent请求
         AgentRequest agentRequest = buildAgentRequest(request, aggregate);
@@ -141,9 +140,9 @@ public class ConversationApplicationService {
                 updateTraceStateQuietly(traceRunId, registered == ReactiveRunManager.Registration.CANCELLED ? TaskState.INTERRUPT : TaskState.FAILED);
                 releaseUnstartedApproval(replay);
                 if (registered == ReactiveRunManager.Registration.ALREADY_RUNNING) {
-                    return Flux.error(new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING));
+                    return Flux.error(TripExceptions.business(TripAgentResultCode.CONVERSATION_RUNNING));
                 }
-                return Flux.error(SystemIntervalException.of("agent请求注册失败: " + registered));
+                return Flux.error(TripExceptions.system("agent请求注册失败: " + registered));
             }
             try {
                 if (replay == null) {
@@ -287,14 +286,14 @@ public class ConversationApplicationService {
                 request.getPauseId(), request.getRequestId()) || request.getPauseVersion() == null
                 || request.getPauseVersion() <= 0 || request.getRequestId().length() > 128
                 || request.getDecisions() == null || request.getDecisions().isEmpty()) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
+            throw TripExceptions.validation(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
         }
         log.info("[REPLAY]收到整批审批, userId:{}, conversationId:{}, pauseId:{}, requestId:{}, decisionCount:{}",
                 request.getUserId(), request.getConversationId(), request.getPauseId(), request.getRequestId(), request.getDecisions().size());
         ChatConversation conversation = chatConversationDomainService.findByUseIdAndConversationId(
                 request.getUserId(), request.getConversationId());
         if (conversation == null) {
-            throw new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_NOT_EXIST);
+            throw TripExceptions.business(TripAgentResultCode.CONVERSATION_NOT_EXIST);
         }
         requireExecutionReleased(conversation);
         List<ChatMessageHitl> tickets = chatMessageHitlDomainService.findBatch(conversation.getConversationId(), request.getPauseId());
@@ -304,24 +303,24 @@ public class ConversationApplicationService {
         for (ConversationReplayRequest.Decision decision : request.getDecisions()) {
             if (decision == null || StringUtils.isBlank(decision.getMessageId()) || decision.getAction() == null
                     || decisions.putIfAbsent(decision.getMessageId(), decision) != null) {
-                throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
+                throw TripExceptions.validation(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
             }
             if (decision.getAction() == AgentApprovalAction.EDIT) {
                 if (decision.getParams() == null || decision.getParams().isEmpty()) {
-                    throw new BusinessRuntimeException(TripAgentResultCode.HITL_EDIT_PARAMS_REQUIRED);
+                    throw TripExceptions.validation(TripAgentResultCode.HITL_EDIT_PARAMS_REQUIRED);
                 }
             } else if (decision.getParams() != null && !decision.getParams().isEmpty()) {
-                throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
+                throw TripExceptions.validation(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
             }
         }
         List<String> messageIds = tickets.stream().map(ChatMessageHitl::getMessageId).toList();
         if (!decisions.keySet().equals(new HashSet<>(messageIds))) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
+            throw TripExceptions.validation(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
         }
         List<ChatMessage> approvals = chatMessageDomainService.listByIds(messageIds);
         Assert.isTrue(approvals.size() == tickets.size() && approvals.stream().allMatch(message ->
                         message.getRole() == ChatRole.AGENT_HITL && conversation.getConversationId().equals(message.getConversationId())),
-                () -> BusinessRuntimeException.of(TripAgentResultCode.HITL_MESSAGE_NOT_EXIST));
+                () -> TripExceptions.business(TripAgentResultCode.HITL_MESSAGE_NOT_EXIST));
 
         // 客户端只决定动作，hitlId、原Run和所有恢复坐标均来自已保存的票证。
         HitlRequestInfo hitl = HitlRequestInfo.builder().humanInTheLoopKind(HumanInTheLoopKind.APPROVAL)
@@ -336,9 +335,9 @@ public class ConversationApplicationService {
                 .conversationId(conversation.getConversationId()).runId(trace.getRunId()).hitlRequestInfo(hitl).build();
         try {
             agentExecutePipeline.validateApprovalResume(agentRequest);
-        } catch (BizException error) {
+        } catch (BsException error) {
             log.warn("[REPLAY]原生批次预检查未通过, conversationId:{}, pauseId:{}", conversation.getConversationId(), first.getPauseId());
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_VALIDATION_FAILED);
+            throw TripExceptions.business(TripAgentResultCode.HITL_BATCH_VALIDATION_FAILED, error);
         }
         ChatMessage audit = ChatMessage.createUser(conversation.getConversationId(), trace.getRunId(), ChatRole.USER_RESUME,
                 ChatMessageRequest.builder().messageType(ChatMessageContentType.TEXT).content("已提交本批全部审批决定").build());
@@ -352,29 +351,29 @@ public class ConversationApplicationService {
      */
     private void validateReplayTickets(List<ChatMessageHitl> tickets, ConversationReplayRequest request) {
         if (tickets.isEmpty()) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
+            throw TripExceptions.validation(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID);
         }
         if (tickets.stream().anyMatch(ticket -> ticket.getStatus() == ChatMessageHitlStatus.PREPARED)) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_NOT_READY);
+            throw TripExceptions.business(TripAgentResultCode.HITL_BATCH_NOT_READY);
         }
         if (tickets.stream().anyMatch(ticket -> ticket.getStatus() == ChatMessageHitlStatus.FAILED)) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_RESUME_FAILED);
+            throw TripExceptions.business(TripAgentResultCode.HITL_BATCH_RESUME_FAILED);
         }
         if (chatMessageHitlDomainService.hasResumeRequest(request.getConversationId(), request.getRequestId())) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_REQUEST_ID_ALREADY_USED);
+            throw TripExceptions.business(TripAgentResultCode.HITL_REQUEST_ID_ALREADY_USED);
         }
         if (tickets.stream().anyMatch(ticket -> ticket.getStatus() != ChatMessageHitlStatus.PENDING)) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_MESSAGE_ALREADY_USED);
+            throw TripExceptions.business(TripAgentResultCode.HITL_MESSAGE_ALREADY_USED);
         }
         if (tickets.stream().anyMatch(ticket -> !Objects.equals(ticket.getPauseVersion(), request.getPauseVersion()))) {
-            throw new BusinessRuntimeException(TripAgentResultCode.HITL_BATCH_VERSION_EXPIRED);
+            throw TripExceptions.business(TripAgentResultCode.HITL_BATCH_VERSION_EXPIRED);
         }
         ChatMessageHitl first = tickets.getFirst();
         Assert.isTrue(tickets.stream().allMatch(ticket -> StringUtils.isNoneBlank(ticket.getHitlId(), ticket.getOriginRunId(),
                         ticket.getCheckpointId(), ticket.getPipelineRunId(), ticket.getResumeRef())
                         && Objects.equals(first.getOriginRunId(), ticket.getOriginRunId())
                         && Objects.equals(first.getPipelineRunId(), ticket.getPipelineRunId())),
-                () -> BusinessRuntimeException.of(TripAgentResultCode.HITL_LEGACY_CREDENTIAL));
+                () -> TripExceptions.business(TripAgentResultCode.HITL_LEGACY_CREDENTIAL));
     }
 
     /**
@@ -385,15 +384,15 @@ public class ConversationApplicationService {
             List<ChatMessageHitl> current = chatMessageHitlDomainService.findBatch(submission.getConversationId(), submission.getPauseId());
             validateReplayTickets(current, submission);
             Assert.isTrue(current.stream().map(ChatMessageHitl::getMessageId).toList().equals(replay.messageIds()),
-                    () -> BusinessRuntimeException.of(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID));
+                    () -> TripExceptions.validation(TripAgentResultCode.HITL_BATCH_DECISIONS_INVALID));
             Assert.isTrue(chatMessageHitlDomainService.claimBatch(submission.getConversationId(), submission.getPauseId(),
                             submission.getPauseVersion(), replay.messageIds(), submission.getRequestId(), replay.aggregate().gerRunId())
                             == replay.messageIds().size(),
-                    () -> BusinessRuntimeException.of(TripAgentResultCode.HITL_MESSAGE_ALREADY_USED));
+                    () -> TripExceptions.business(TripAgentResultCode.HITL_MESSAGE_ALREADY_USED));
             Assert.isTrue(chatRequestTraceDomainService.save(replay.aggregate().getTrace()),
-                    () -> SystemIntervalException.of("审批恢复Trace持久化失败"));
+                    () -> TripExceptions.system("审批恢复Trace持久化失败"));
             Assert.isTrue(chatMessageDomainService.saveBatch(replay.aggregate().getMessages()),
-                    () -> SystemIntervalException.of("审批完整决定审计持久化失败"));
+                    () -> TripExceptions.system("审批完整决定审计持久化失败"));
         });
     }
 
@@ -425,9 +424,9 @@ public class ConversationApplicationService {
             try {
                 // 再次在数据库中检查执行状态；删除成功持有行锁后，新的Run无法再绑定此会话。
                 Assert.isTrue(chatConversationDomainService.removeIdleConversation(userId, conversationId),
-                        () -> BusinessRuntimeException.of(TripAgentResultCode.CONVERSATION_RUNNING));
-                Assert.isTrue(chatRequestTraceDomainService.removeByConversationId(conversationId), () -> SystemIntervalException.of("删除Trace失败"));
-                Assert.isTrue(chatMessageDomainService.removeByConversationId(conversationId), () -> SystemIntervalException.of("删除聊天记录失败"));
+                        () -> TripExceptions.business(TripAgentResultCode.CONVERSATION_RUNNING));
+                Assert.isTrue(chatRequestTraceDomainService.removeByConversationId(conversationId), () -> TripExceptions.system("删除Trace失败"));
+                Assert.isTrue(chatMessageDomainService.removeByConversationId(conversationId), () -> TripExceptions.system("删除聊天记录失败"));
                 return true;
             } catch (Exception e) {
                 status.setRollbackOnly();
@@ -468,7 +467,7 @@ public class ConversationApplicationService {
             int changed = chatMessageHitlDomainService.finishResume(replay.aggregate().getConversationId(), hitl.getPauseId(),
                     hitl.getRequestId(), replay.aggregate().gerRunId(), status);
             Assert.isTrue(changed == replay.messageIds().size() || !requireAll && changed == 0,
-                    () -> SystemIntervalException.of("审批批次状态更新不完整"));
+                    () -> TripExceptions.system("审批批次状态更新不完整"));
         });
     }
 
@@ -493,7 +492,7 @@ public class ConversationApplicationService {
                 yield ChatMessage.createAgent(agentName, masterResult);
             }
             case FAILED, TIMED_OUT, REJECTED, APPROVAL_REJECTED, CANCELLED -> List.of();
-            case CREATED, RUNNING -> throw SystemIntervalException.of("Agent返回了非终态结果: " + state);
+            case CREATED, RUNNING -> throw TripExceptions.system("Agent返回了非终态结果: " + state);
         };
         List<ChatMessageHitl> hitlDetails = state == AgentRunState.WAITING_APPROVAL
                 ? createApprovalDetails(masterResult, chatMessages, result.pipelineRunId())
@@ -502,12 +501,12 @@ public class ConversationApplicationService {
         transactionTemplate.executeWithoutResult(status -> {
             try {
                 if (!chatMessages.isEmpty()) {
-                    Assert.isTrue(chatMessageDomainService.saveBatch(chatMessages), () -> SystemIntervalException.of("保存Agent回复消息失败"));
+                    Assert.isTrue(chatMessageDomainService.saveBatch(chatMessages), () -> TripExceptions.system("保存Agent回复消息失败"));
                 }
                 if (!hitlDetails.isEmpty()) {
-                    Assert.isTrue(chatMessageHitlDomainService.saveBatch(hitlDetails), () -> SystemIntervalException.of("保存Agent审批扩展信息失败"));
+                    Assert.isTrue(chatMessageHitlDomainService.saveBatch(hitlDetails), () -> TripExceptions.system("保存Agent审批扩展信息失败"));
                 }
-                Assert.isTrue(chatRequestTraceDomainService.updateById(trace), () -> SystemIntervalException.of("更新聊天请求轨迹失败"));
+                Assert.isTrue(chatRequestTraceDomainService.updateById(trace), () -> TripExceptions.system("更新聊天请求轨迹失败"));
                 if (replay != null) {
                     // 子节点再次ASK时，旧决定已消费，新票证另成一批；失败不重新开放旧工具。
                     ChatMessageHitlStatus resumeStatus = switch (state) {
@@ -527,7 +526,7 @@ public class ConversationApplicationService {
     private List<ChatMessageHitl> createApprovalDetails(AgentRunResult result, List<ChatMessage> messages,
                                                         String pipelineRunId) {
         Assert.notEmpty(result.getHumanInTheLoopInfos(),
-                () -> SystemIntervalException.of("Agent审批结果缺少审批凭证"));
+                () -> TripExceptions.system("Agent审批结果缺少审批凭证"));
         List<HumanInTheLoopInfo> approvals = result.getHumanInTheLoopInfos().stream()
                 .filter(info -> info.getKind() == HumanInTheLoopKind.APPROVAL)
                 .toList();
@@ -535,18 +534,18 @@ public class ConversationApplicationService {
                 .filter(message -> message.getRole() == ChatRole.AGENT_HITL)
                 .toList();
         Assert.isTrue(!approvals.isEmpty() && approvals.size() == approvalMessages.size(),
-                () -> SystemIntervalException.of("Agent审批消息与恢复信息数量不一致"));
+                () -> TripExceptions.system("Agent审批消息与恢复信息数量不一致"));
         HumanInTheLoopInfo first = approvals.getFirst();
         HashSet<String> ids = new HashSet<>();
         for (HumanInTheLoopInfo approval : approvals) {
             Assert.isTrue(StringUtils.isNoneBlank(approval.getId(), approval.getOriginRunId(),
                             approval.getCheckpointId(), approval.getPauseId(), approval.getResumeRef())
                             && approval.getPauseVersion() != null && ids.add(approval.getId()),
-                    () -> SystemIntervalException.of("Agent审批凭证缺少恢复标识或存在重复项"));
+                    () -> TripExceptions.system("Agent审批凭证缺少恢复标识或存在重复项"));
             Assert.isTrue(Objects.equals(first.getPauseId(), approval.getPauseId())
                             && Objects.equals(first.getPauseVersion(), approval.getPauseVersion())
                             && Objects.equals(result.getRunId(), approval.getOriginRunId()),
-                    () -> SystemIntervalException.of("同次收口的审批必须属于同一批次和原Run"));
+                    () -> TripExceptions.system("同次收口的审批必须属于同一批次和原Run"));
         }
         return IntStream.range(0, approvals.size())
                 .mapToObj(index -> ChatMessageHitl.create(
@@ -586,16 +585,16 @@ public class ConversationApplicationService {
                                 conversationId, first.getPauseId(), first.getPauseVersion(), pipelineRunId);
                         Assert.isTrue(tickets.size() == master.getHumanInTheLoopInfos().size()
                                         && tickets.stream().allMatch(ticket -> ticket.getStatus() == ChatMessageHitlStatus.PREPARED),
-                                () -> SystemIntervalException.of("准备中的审批批次不完整，不能开放部分审批"));
+                                () -> TripExceptions.system("准备中的审批批次不完整，不能开放部分审批"));
                         Assert.isTrue(chatMessageHitlDomainService.markBatchPending(conversationId, first.getPauseId(),
                                         first.getPauseVersion(), pipelineRunId) == tickets.size(),
-                                () -> SystemIntervalException.of("审批批次就绪状态更新冲突"));
+                                () -> TripExceptions.system("审批批次就绪状态更新冲突"));
                         tickets.forEach(ticket -> ticket.setStatus(ChatMessageHitlStatus.PENDING));
                         Map<String, ChatMessage> messages = chatMessageDomainService.listByIds(
                                         tickets.stream().map(ChatMessageHitl::getMessageId).toList()).stream()
                                 .collect(Collectors.toMap(ChatMessage::getMessageId, Function.identity()));
                         Assert.isTrue(messages.size() == tickets.size(),
-                                () -> SystemIntervalException.of("审批消息缺失，不能发布恢复凭证"));
+                                () -> TripExceptions.system("审批消息缺失，不能发布恢复凭证"));
                         return tickets.stream().map(ticket -> approvalMessageInfo(messages.get(ticket.getMessageId()), ticket))
                                 .toList();
                     });
@@ -617,7 +616,7 @@ public class ConversationApplicationService {
                     ? ChatMessage.createCancellation(aggregate.getConversationId(), aggregate.gerRunId(), pipelineRunId)
                     : ChatMessage.createFailure(aggregate.getConversationId(), aggregate.gerRunId(), pipelineRunId);
             Assert.isTrue(chatMessageDomainService.save(message),
-                    () -> SystemIntervalException.of("保存执行终态消息失败"));
+                    () -> TripExceptions.system("保存执行终态消息失败"));
             return List.of(MessageInfo.builder()
                     .id(message.getMessageId()).role(message.getRole().getCode())
                     .runId(message.getRunId())
@@ -637,7 +636,7 @@ public class ConversationApplicationService {
                 .setExecutionSummary(context.executionSummary(), hitl == null ? null : hitl.getOriginRunId(), tripToolCatalog.toolNames());
         // 仅更新摘要列；状态由既有收口决定，不能被创建时的 init 覆盖。
         Assert.isTrue(chatRequestTraceDomainService.updateExecutionSummary(aggregate.getTrace()),
-                () -> SystemIntervalException.of("保存请求执行摘要失败"));
+                () -> TripExceptions.system("保存请求执行摘要失败"));
     }
 
     /**
@@ -657,7 +656,7 @@ public class ConversationApplicationService {
 
     private void requireNoPendingApproval(String conversationId) {
         if (chatMessageHitlDomainService.hasUnresolvedApproval(conversationId)) {
-            throw new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_WAITING_APPROVAL);
+            throw TripExceptions.business(TripAgentResultCode.CONVERSATION_WAITING_APPROVAL);
         }
     }
 
@@ -666,7 +665,7 @@ public class ConversationApplicationService {
      */
     private void requireExecutionReleased(ChatConversation conversation) {
         if (StringUtils.isNotBlank(conversation.getActiveRunId())) {
-            throw new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING);
+            throw TripExceptions.business(TripAgentResultCode.CONVERSATION_RUNNING);
         }
     }
 
@@ -681,7 +680,7 @@ public class ConversationApplicationService {
         ChatConversation current = chatConversationDomainService.findByUseIdAndConversationId(
                 aggregate.getConversation().getUserId(), conversationId);
         Assert.isTrue(current != null && StringUtils.isBlank(current.getActiveRunId()),
-                () -> SystemIntervalException.of("会话执行权尚未交接，不能发布结束状态"));
+                () -> TripExceptions.system("会话执行权尚未交接，不能发布结束状态"));
     }
 
     @NotNull
@@ -706,8 +705,8 @@ public class ConversationApplicationService {
     private void updateTraceActive(String conversationId, String traceRunId, String pipelineRunId) {
         transactionTemplate.execute(status -> {
             Assert.isTrue(chatConversationDomainService.updateActiveRunId(conversationId, pipelineRunId),
-                    () -> new BusinessRuntimeException(TripAgentResultCode.CONVERSATION_RUNNING));
-            Assert.isTrue(chatRequestTraceDomainService.updateState(traceRunId, TaskState.PROCESS), () -> SystemIntervalException.of("更新trace状态失败"));
+                    () -> TripExceptions.business(TripAgentResultCode.CONVERSATION_RUNNING));
+            Assert.isTrue(chatRequestTraceDomainService.updateState(traceRunId, TaskState.PROCESS), () -> TripExceptions.system("更新trace状态失败"));
             return null;
         });
     }
@@ -750,7 +749,7 @@ public class ConversationApplicationService {
         } else {
             isNewConversation = false;
             conversation = chatConversationDomainService.findByUseIdAndConversationId(request.getUserId(), request.getConversationId());
-            Assert.notNull(conversation, () -> BusinessRuntimeException.of(TripAgentResultCode.CONVERSATION_NOT_EXIST));
+            Assert.notNull(conversation, () -> TripExceptions.business(TripAgentResultCode.CONVERSATION_NOT_EXIST));
             requireExecutionReleased(conversation);
             requireNoPendingApproval(conversation.getConversationId());
         }
@@ -759,16 +758,16 @@ public class ConversationApplicationService {
         return transactionTemplate.execute(status -> {
             try {
                 if (isNewConversation) {
-                    Assert.isTrue(chatConversationDomainService.save(finalConversation), () -> SystemIntervalException.of("会话Conversation持久化失败"));
+                    Assert.isTrue(chatConversationDomainService.save(finalConversation), () -> TripExceptions.system("会话Conversation持久化失败"));
                 }
 
                 ChatRequestTrace trace = ChatRequestTrace.create(conversation.getConversationId());
-                Assert.isTrue(chatRequestTraceDomainService.save(trace), () -> SystemIntervalException.of("聊天请求轨迹持久化失败"));
+                Assert.isTrue(chatRequestTraceDomainService.save(trace), () -> TripExceptions.system("聊天请求轨迹持久化失败"));
 
                 List<ChatMessage> chatMessages = request.getMessages().stream()
                         .map(e -> ChatMessage.createUser(finalConversation.getConversationId(), trace.getRunId(), ChatRole.USER, e))
                         .toList();
-                Assert.isTrue(chatMessageDomainService.saveBatch(chatMessages), () -> SystemIntervalException.of("聊天消息持久化失败"));
+                Assert.isTrue(chatMessageDomainService.saveBatch(chatMessages), () -> TripExceptions.system("聊天消息持久化失败"));
 
                 return new ChatMessageAggregate(finalConversation, trace, chatMessages);
             } catch (Exception e) {

@@ -4,7 +4,7 @@ import com.alibaba.fastjson2.annotation.JSONCreator;
 import com.alibaba.fastjson2.annotation.JSONField;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 /** 偏好页面的固定分组；JSON 沿用原有小写分组 code。 */
 public enum PreferenceGroup {
@@ -57,6 +57,6 @@ public enum PreferenceGroup {
                 return group;
             }
         }
-        throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID);
+        throw TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID);
     }
 }

@@ -6,7 +6,7 @@ import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
 import com.fons.cloud.ai.trip.infrastructure.repository.AnalysisIntentRepository;
 import com.fons.cloud.ai.trip.infrastructure.util.SemanticsMatcherIntentRecognition;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +32,7 @@ public class SemanticsRecognitionStepHandler extends AbstractAgentExecuteHandler
             String text = context.extractUserTextInput();
             return semanticsMatcherIntentRecognition.semanticsRecognition(text);
         }).subscribeOn(Schedulers.boundedElastic())
-                .switchIfEmpty(Mono.error(SystemIntervalException.of("语义识别未返回结果")))
+                .switchIfEmpty(Mono.error(TripExceptions.system("语义识别未返回结果")))
                 .flatMap(recognition -> {
                     if (!recognition.isSuccess()) {
                         // 识别失败 直接下一步进行语义识别
@@ -41,7 +41,7 @@ public class SemanticsRecognitionStepHandler extends AbstractAgentExecuteHandler
                     }
                     IntentRecognitionResult result = recognition.getData();
                     if (result == null) {
-                        return Mono.error(SystemIntervalException.of("语义识别命中但结果为空"));
+                        return Mono.error(TripExceptions.system("语义识别命中但结果为空"));
                     }
                     // 先保存，MasterAgent的中间件才能在本轮和恢复请求中加载同一份结果。
                     log.info("语义识别命中， outcome：{}", JSON.toJSONString(result));

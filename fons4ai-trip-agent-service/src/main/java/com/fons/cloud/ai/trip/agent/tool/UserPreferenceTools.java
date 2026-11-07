@@ -4,7 +4,7 @@ import com.fons.cloud.ai.agent.core.AgentScopeRuntimeActions;
 import com.fons.cloud.ai.trip.application.user.PreferenceApplicationService;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.dto.preference.PreferenceData.*;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.BsException;
 import com.fons.cloud.common.result.R;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
@@ -33,8 +33,8 @@ public class UserPreferenceTools implements BaseTool {
     public R<Snapshot> query(RuntimeContext context) {
         try {
             return R.success(preferences.query(context.getUserId()));
-        } catch (BusinessRuntimeException error) {
-            return R.failed(error.getCode(), error.getMessage());
+        } catch (BsException error) {
+            return R.failed(error.getExceptionCode().getCode(), error.getMessage());
         } catch (Exception error) {
             log.error("偏好查询工具失败", error);
             return R.failed(TripAgentResultCode.PREFERENCE_READ_FAILED);
@@ -57,8 +57,8 @@ public class UserPreferenceTools implements BaseTool {
             // 与页面调用同一 CRUD；工具额外保留实际写入前的既有取消检查。
             return R.success(preferences.save(context.getUserId(), new SaveRequest(version, changes),
                     actions::requireExecutionAllowed));
-        } catch (BusinessRuntimeException error) {
-            return R.failed(error.getCode(), error.getMessage());
+        } catch (BsException error) {
+            return R.failed(error.getExceptionCode().getCode(), error.getMessage());
         } catch (java.util.concurrent.CancellationException cancelled) {
             throw cancelled;
         } catch (Exception error) {

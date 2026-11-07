@@ -17,7 +17,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReview;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySubjectiveAssessmentGateway;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -42,11 +42,11 @@ public final class SubjectiveDimensionReviewer implements ItineraryDimensionRevi
                                        ItinerarySubjectiveAssessmentGateway gateway) {
         if (dimension != ItineraryReviewDimension.EXPERIENCE_AND_PREFERENCE
                 && dimension != ItineraryReviewDimension.RESILIENCE) {
-            throw SystemIntervalException.of("不支持的主观审核维度：" + dimension);
+            throw TripExceptions.system("不支持的主观审核维度：" + dimension);
         }
         this.dimension = dimension;
         if (gateway == null) {
-            throw SystemIntervalException.of("主观审核模型端口不能为空");
+            throw TripExceptions.system("主观审核模型端口不能为空");
         }
         this.gateway = gateway;
     }
@@ -68,7 +68,7 @@ public final class SubjectiveDimensionReviewer implements ItineraryDimensionRevi
         ItinerarySubjectiveAssessment assessment = gateway.assess(dimension, planningResult, context);
         if (assessment == null || assessment.findings() == null
                 || assessment.findings().size() > MAX_FINDINGS) {
-            throw SystemIntervalException.of("主观审核未返回有效的问题列表");
+            throw TripExceptions.system("主观审核未返回有效的问题列表");
         }
         // 2. 逐条核对方案、事实标识与证据来源，再转换为可信审核问题
         Map<String, ItineraryReviewEvidence> facts = context.facts();
@@ -81,19 +81,19 @@ public final class SubjectiveDimensionReviewer implements ItineraryDimensionRevi
                     || finding.message().length() > MAX_MESSAGE_LENGTH
                     || finding.evidenceIds() == null || finding.evidenceIds().isEmpty()
                     || finding.evidenceIds().size() > 5) {
-                throw SystemIntervalException.of("主观审核发现缺少有效的方案、说明或证据");
+                throw TripExceptions.system("主观审核发现缺少有效的方案、说明或证据");
             }
             String proposalId = finding.proposalId().trim();
             String proposalFactId = "proposal:" + proposalId;
             if (!facts.containsKey(proposalFactId)
                     || !finding.evidenceIds().contains(proposalFactId)) {
-                throw SystemIntervalException.of("主观审核引用了未知方案或缺少方案证据");
+                throw TripExceptions.system("主观审核引用了未知方案或缺少方案证据");
             }
             List<ItineraryReviewEvidence> evidence = finding.evidenceIds().stream()
                     .map(id -> {
                         ItineraryReviewEvidence item = facts.get(id);
                         if (item == null) {
-                            throw SystemIntervalException.of("主观审核引用了未知事实");
+                            throw TripExceptions.system("主观审核引用了未知事实");
                         }
                         return item;
                     })
@@ -136,7 +136,7 @@ public final class SubjectiveDimensionReviewer implements ItineraryDimensionRevi
             case STRUCTURAL_RESILIENCE -> dimension == ItineraryReviewDimension.RESILIENCE;
         };
         if (!valid) {
-            throw SystemIntervalException.of("主观审核发现类型与维度或证据来源不匹配");
+            throw TripExceptions.system("主观审核发现类型与维度或证据来源不匹配");
         }
     }
 

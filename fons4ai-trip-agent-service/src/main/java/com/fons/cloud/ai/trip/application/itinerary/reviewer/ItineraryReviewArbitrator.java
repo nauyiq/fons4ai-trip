@@ -17,7 +17,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryProposalReview;
 import com.fons.cloud.ai.trip.common.response.ItineraryRemediationItem;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -42,11 +42,11 @@ public final class ItineraryReviewArbitrator {
 
     public ItineraryReviewArbitrator(Set<ItineraryReviewDimension> requiredDimensions) {
         if (requiredDimensions == null || requiredDimensions.isEmpty()) {
-            throw SystemIntervalException.of("审核规则集必需维度不能为空");
+            throw TripExceptions.system("审核规则集必需维度不能为空");
         }
         for (ItineraryReviewDimension dimension : requiredDimensions) {
             if (dimension == null) {
-                throw SystemIntervalException.of("审核规则集必需维度不能包含null");
+                throw TripExceptions.system("审核规则集必需维度不能包含null");
             }
         }
         this.requiredDimensions = Set.copyOf(requiredDimensions);
@@ -65,7 +65,7 @@ public final class ItineraryReviewArbitrator {
                                            ItineraryReviewContext context) {
         // 1. 归并各维度结论，并按问题标识去重
         if (context == null) {
-            throw SystemIntervalException.of("审核上下文不能为空");
+            throw TripExceptions.system("审核上下文不能为空");
         }
         List<ItineraryDimensionReviewResult> normalizedResults = dimensionResults == null
                 ? List.of() : dimensionResults.stream().filter(Objects::nonNull).toList();
@@ -115,7 +115,7 @@ public final class ItineraryReviewArbitrator {
                 if (issue != null && StringUtils.isNotBlank(issue.issueId())) {
                     ItineraryReviewIssue existing = issues.putIfAbsent(issue.issueId(), issue);
                     if (existing != null && !existing.equals(issue)) {
-                        throw SystemIntervalException.of("审核问题标识冲突：" + issue.issueId());
+                        throw TripExceptions.system("审核问题标识冲突：" + issue.issueId());
                     }
                 }
             }

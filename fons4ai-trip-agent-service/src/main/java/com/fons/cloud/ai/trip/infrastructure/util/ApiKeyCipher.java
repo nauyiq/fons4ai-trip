@@ -1,7 +1,7 @@
 package com.fons.cloud.ai.trip.infrastructure.util;
 
 import cn.hutool.core.lang.Assert;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -47,18 +47,18 @@ public class ApiKeyCipher {
             return FORMAT_PREFIX + Base64.getEncoder().encodeToString(
                     ByteBuffer.allocate(iv.length + encrypted.length).put(iv).put(encrypted).array());
         } catch (GeneralSecurityException e) {
-            throw SystemIntervalException.of("用户API Key加密失败", e);
+            throw TripExceptions.system("用户API Key加密失败", e);
         }
     }
 
     /** 校验密文完整性并解密，仅供后端调用，不将明文传给 LLM。 */
     public String decrypt(String encryptedText) {
         Assert.isTrue(encryptedText != null && encryptedText.startsWith(FORMAT_PREFIX),
-                () -> SystemIntervalException.of("用户API Key密文格式不受支持"));
+                () -> TripExceptions.system("用户API Key密文格式不受支持"));
         try {
             byte[] payload = Base64.getDecoder().decode(encryptedText.substring(FORMAT_PREFIX.length()));
             Assert.isTrue(payload.length > IV_LENGTH + TAG_BITS / Byte.SIZE,
-                    () -> SystemIntervalException.of("用户API Key密文不完整"));
+                    () -> TripExceptions.system("用户API Key密文不完整"));
             ByteBuffer buffer = ByteBuffer.wrap(payload);
             byte[] iv = new byte[IV_LENGTH];
             buffer.get(iv);
@@ -69,12 +69,12 @@ public class ApiKeyCipher {
             return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | IllegalArgumentException e) {
             // 不附带解码异常原文，避免底层异常回显密文。
-            throw SystemIntervalException.of("用户API Key解密失败，请检查加密配置或重新配置凭据");
+            throw TripExceptions.system("用户API Key解密失败，请检查加密配置或重新配置凭据");
         }
     }
 
     private SecretKeySpec resolveKey() throws GeneralSecurityException {
-        Assert.notBlank(encryptSecret, () -> SystemIntervalException.of("未配置trip.api-key.encrypt-secret"));
+        Assert.notBlank(encryptSecret, () -> TripExceptions.system("未配置trip.api-key.encrypt-secret"));
         return new SecretKeySpec(MessageDigest.getInstance("SHA-256")
                 .digest(encryptSecret.getBytes(StandardCharsets.UTF_8)), "AES");
     }

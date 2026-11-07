@@ -2,7 +2,7 @@ package com.fons.cloud.ai.trip.common.constants;
 
 import com.alibaba.fastjson2.annotation.JSONCreator;
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 /**
  * 单项偏好状态；枚举名沿用既有 JSON 和存储值。
@@ -33,6 +33,6 @@ public enum PreferenceStatus {
                 return status;
             }
         }
-        throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID);
+        throw TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID);
     }
 }

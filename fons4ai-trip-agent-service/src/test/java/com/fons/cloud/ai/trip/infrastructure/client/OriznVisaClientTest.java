@@ -5,7 +5,7 @@ import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.VisaQuickCheckResult;
 import com.fons.cloud.ai.trip.common.dto.VisaRequirementResult;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.OriznVisaConfigProperties;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -63,7 +63,7 @@ class OriznVisaClientTest {
     void unknownCountryPairIsNotTreatedAsVisaFree() {
         BusinessRuntimeException error = assertThrows(BusinessRuntimeException.class,
                 () -> client.quickCheck("USA", "JPN"));
-        assertEquals(TripAgentToolResultCode.VISA_RECORD_NOT_FOUND.getCode(), error.getCode());
+        assertEquals(TripAgentToolResultCode.VISA_RECORD_NOT_FOUND.getCode(), error.getExceptionCode().getCode());
     }
 
     private void quickCheck(HttpExchange exchange) throws IOException {

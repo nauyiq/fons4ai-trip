@@ -2,7 +2,7 @@ package com.fons.cloud.ai.trip.common.dto;
 
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewCoverageReason;
 import com.fons.cloud.ai.trip.common.constants.ItineraryReviewDimension;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDate;
@@ -19,15 +19,15 @@ public record ItineraryReviewCoverageGap(ItineraryReviewCoverageReason reason, S
 
     public ItineraryReviewCoverageGap {
         if (reason == null) {
-            throw SystemIntervalException.of("审核信息覆盖缺口原因不能为空");
+            throw TripExceptions.system("审核信息覆盖缺口原因不能为空");
         }
         if (reason != ItineraryReviewCoverageReason.PREFERENCE_MISSING && StringUtils.isBlank(city)) {
-            throw SystemIntervalException.of("审核信息覆盖缺口城市不能为空");
+            throw TripExceptions.system("审核信息覆盖缺口城市不能为空");
         }
         if ((reason == ItineraryReviewCoverageReason.WEATHER_OUT_OF_RANGE
                 || reason == ItineraryReviewCoverageReason.WEATHER_NO_FORECAST
                 || reason == ItineraryReviewCoverageReason.WEATHER_QUERY_FAILED) && date == null) {
-            throw SystemIntervalException.of("天气信息覆盖缺口日期不能为空");
+            throw TripExceptions.system("天气信息覆盖缺口日期不能为空");
         }
     }
 

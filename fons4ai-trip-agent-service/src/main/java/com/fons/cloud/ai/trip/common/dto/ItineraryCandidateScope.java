@@ -2,8 +2,8 @@ package com.fons.cloud.ai.trip.common.dto;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.BookingType;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.result.ResultCode;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -63,7 +63,7 @@ public record ItineraryCandidateScope(String userId, String orderId, BookingType
         return new ItineraryCandidateScope(userId, orderId, BookingType.HOTEL, city, null, checkIn, checkOut, adultCount, childAges);
     }
 
-    private static BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private static ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 }

@@ -14,7 +14,7 @@ import com.fons.cloud.ai.trip.domain.entity.TravelOrderItineraryPlan;
 import com.fons.cloud.ai.trip.domain.mapper.TravelOrderItineraryPlanMapper;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanPageStore;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.common.result.R;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -71,7 +71,7 @@ public class PublishedItineraryApplicationService {
             plan = JSON.parseObject(published.getPlanSnapshot(), ItineraryPlanningResult.class);
             review = JSON.parseObject(published.getReviewSnapshot(), ItineraryReviewResult.class);
         } catch (JSONException e) {
-            throw SystemIntervalException.of("已发布行程方案快照格式无效", e);
+            throw TripExceptions.system("已发布行程方案快照格式无效", e);
         }
         Assert.isTrue(plan != null && review != null && StringUtils.isNotBlank(plan.getPlanId())
                         && plan.getGeneratedAt() != null && review.getReviewedAt() != null && review.getVerdict() != null
@@ -82,13 +82,13 @@ public class PublishedItineraryApplicationService {
                         && review.getNextAction() == ItineraryReviewNextAction.PROCEED
                         && plan.getSourceTravelOrder() != null
                         && StringUtils.equals(order.getOrderId(), plan.getSourceTravelOrder().orderId()),
-                () -> SystemIntervalException.of("已发布行程方案与审核快照不一致"));
+                () -> TripExceptions.system("已发布行程方案与审核快照不一致"));
         String recommendedId = review.getRecommendedProposalId();
         Assert.isTrue(plan.getProposals() != null && plan.getProposals().stream()
                         .anyMatch(item -> item != null && recommendedId.equals(item.proposalId()))
                         && review.getProposalReviews() != null && review.getProposalReviews().stream()
                         .anyMatch(item -> item != null && recommendedId.equals(item.proposalId()) && item.eligibleForRecommendation()),
-                () -> SystemIntervalException.of("已发布行程推荐方案与审核快照不一致"));
+                () -> TripExceptions.system("已发布行程推荐方案与审核快照不一致"));
 
         ItineraryPlanningResult.TravelOrderReference source = plan.getSourceTravelOrder();
         // 订单已修改时旧方案不能作为当前方案读取；取消或完成的单据仍可查看历史快照。

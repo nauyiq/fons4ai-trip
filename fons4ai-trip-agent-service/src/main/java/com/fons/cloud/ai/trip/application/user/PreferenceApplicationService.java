@@ -8,7 +8,8 @@ import com.fons.cloud.ai.trip.common.dto.preference.PreferenceCatalog;
 import com.fons.cloud.ai.trip.common.dto.preference.PreferenceData.*;
 import com.fons.cloud.ai.trip.domain.entity.UserProfile;
 import com.fons.cloud.ai.trip.domain.service.UserProfileDomainService;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.BsException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -97,12 +98,11 @@ public class PreferenceApplicationService {
             });
         } catch (CancellationException cancelled) {
             throw cancelled;
-        } catch (BusinessRuntimeException error) {
+        } catch (BsException error) {
             throw error;
         } catch (Exception error) {
             log.error("业务偏好保存失败，userId={}", userId, error);
-            throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_WRITE_FAILED.getCode(),
-                    TripAgentResultCode.PREFERENCE_WRITE_FAILED.getMessage(), error);
+            throw TripExceptions.system(TripAgentResultCode.PREFERENCE_WRITE_FAILED, error);
         }
     }
 
@@ -137,8 +137,7 @@ public class PreferenceApplicationService {
             return profiles.getPreferenceProfile(userId);
         } catch (Exception error) {
             log.error("业务偏好读取失败，userId={}", userId, error);
-            throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_READ_FAILED.getCode(),
-                    TripAgentResultCode.PREFERENCE_READ_FAILED.getMessage(), error);
+            throw TripExceptions.system(TripAgentResultCode.PREFERENCE_READ_FAILED, error);
         }
     }
 
@@ -163,8 +162,7 @@ public class PreferenceApplicationService {
                 current.put(item.key(), item);
             }
         } catch (RuntimeException error) {
-            throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_READ_FAILED.getCode(),
-                    TripAgentResultCode.PREFERENCE_READ_FAILED.getMessage(), error);
+            throw TripExceptions.system(TripAgentResultCode.PREFERENCE_READ_FAILED, error);
         }
         return current;
     }
@@ -193,8 +191,7 @@ public class PreferenceApplicationService {
         try {
             return Long.parseLong(version);
         } catch (NumberFormatException error) {
-            throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID.getCode(),
-                    TripAgentResultCode.PREFERENCE_INVALID.getMessage(), error);
+            throw TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID, error);
         }
     }
 
@@ -204,7 +201,12 @@ public class PreferenceApplicationService {
         }
     }
 
-    private BusinessRuntimeException failure(TripAgentResultCode code) {
-        return BusinessRuntimeException.of(code);
+    private BsException failure(TripAgentResultCode code) {
+        return switch (code) {
+            case LOGIN_EXPIRED -> TripExceptions.authentication(code);
+            case PREFERENCE_INVALID -> TripExceptions.validation(code);
+            case PREFERENCE_READ_FAILED, PREFERENCE_WRITE_FAILED -> TripExceptions.system(code, null);
+            default -> TripExceptions.business(code);
+        };
     }
 }

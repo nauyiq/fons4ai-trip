@@ -19,9 +19,8 @@ import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.render.ItineraryPlanHtmlRenderer;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanPageStore;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -66,7 +65,7 @@ public class ItineraryPlanPageApplicationService {
         ItineraryPublicationSource source = publicationEligibilityService.requirePublishable(userId, validOrderId, conversationId, planId);
         Assert.isTrue(StringUtils.isNotBlank(source.reviewResult().getReviewId())
                         && StringUtils.equals(source.planningResult().getPlanId(), source.reviewResult().getPlanId()),
-                () -> SystemIntervalException.of("规划与审核标识不一致，不能发布"));
+                () -> TripExceptions.system("规划与审核标识不一致，不能发布"));
         // 读取既有页面指针；上传前不改变数据库，以免失败影响旧方案。
         TravelOrderItineraryPlan previous = itineraryPlanMapper.selectById(validOrderId);
         String previousKey = previous == null ? null : previous.getPlanHtmlUrl();
@@ -84,12 +83,12 @@ public class ItineraryPlanPageApplicationService {
             ItineraryPublicationSource latest = publicationEligibilityService.requirePublishable(userId, validOrderId, conversationId, planId);
             Assert.isTrue(StringUtils.equals(source.reviewResult().getReviewId(), latest.reviewResult().getReviewId())
                             && StringUtils.equals(source.recommendedProposal().proposalId(), latest.recommendedProposal().proposalId()),
-                    () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "方案审核结果已变化，请重新查看后发布"));
+                    () -> TripExceptions.invalidRequest("方案审核结果已变化，请重新查看后发布"));
             TravelOrderItineraryPlan current = itineraryPlanMapper.selectOne(Wrappers.lambdaQuery(TravelOrderItineraryPlan.class)
                     .eq(TravelOrderItineraryPlan::getOrderId, validOrderId).last("FOR UPDATE"));
             String currentKey = current == null ? null : current.getPlanHtmlUrl();
             if (!Objects.equals(previousKey, currentKey)) {
-                throw BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "该差旅单的方案已发生变化，请重新查看后发布");
+                throw TripExceptions.invalidRequest("该差旅单的方案已发生变化，请重新查看后发布");
             }
             String planJson = JSON.toJSONString(source.planningResult());
             String reviewJson = JSON.toJSONString(source.reviewResult());
@@ -99,7 +98,7 @@ public class ItineraryPlanPageApplicationService {
                 published.setPlanSnapshot(planJson);
                 published.setReviewSnapshot(reviewJson);
                 published.setPlanHtmlUrl(objectKey);
-                Assert.isTrue(itineraryPlanMapper.insert(published) == 1, () -> SystemIntervalException.of("保存行程方案失败"));
+                Assert.isTrue(itineraryPlanMapper.insert(published) == 1, () -> TripExceptions.system("保存行程方案失败"));
             } else {
                 // 不写创建时间，更新时间显式交给数据库维护。
                 int updated = itineraryPlanMapper.update(null, Wrappers.lambdaUpdate(TravelOrderItineraryPlan.class)
@@ -108,11 +107,11 @@ public class ItineraryPlanPageApplicationService {
                         .set(TravelOrderItineraryPlan::getReviewSnapshot, reviewJson)
                         .set(TravelOrderItineraryPlan::getPlanHtmlUrl, objectKey)
                         .setSql("updated = CURRENT_TIMESTAMP"));
-                Assert.isTrue(updated == 1, () -> SystemIntervalException.of("更新行程方案失败"));
+                Assert.isTrue(updated == 1, () -> TripExceptions.system("更新行程方案失败"));
             }
             return true;
         });
-        Assert.isTrue(Boolean.TRUE.equals(committed), () -> SystemIntervalException.of("行程方案发布事务未完成"));
+        Assert.isTrue(Boolean.TRUE.equals(committed), () -> TripExceptions.system("行程方案发布事务未完成"));
         log.info("[ItineraryPlanPageApplicationService] 行程方案已发布，userId={}, orderId={}, conversationId={}, planId={}, reviewId={}",
                 userId, validOrderId, conversationId, source.planningResult().getPlanId(),
                 source.reviewResult().getReviewId());
@@ -162,13 +161,13 @@ public class ItineraryPlanPageApplicationService {
             plan = JSON.parseObject(published.getPlanSnapshot(), ItineraryPlanningResult.class);
             review = JSON.parseObject(published.getReviewSnapshot(), ItineraryReviewResult.class);
         } catch (JSONException e) {
-            throw SystemIntervalException.of("已发布行程方案快照格式无效", e);
+            throw TripExceptions.system("已发布行程方案快照格式无效", e);
         }
         Assert.isTrue(plan != null && review != null && StringUtils.isNoneBlank(plan.getPlanId(), review.getReviewId())
                         && StringUtils.equals(plan.getPlanId(), review.getPlanId())
                         && review.getExecutionStatus() == ItineraryReviewExecutionStatus.COMPLETE
                         && review.getNextAction() == ItineraryReviewNextAction.PROCEED,
-                () -> SystemIntervalException.of("已发布的规划与审核快照无效"));
+                () -> TripExceptions.system("已发布的规划与审核快照无效"));
         String recommendedId = review.getRecommendedProposalId();
         Assert.isTrue(StringUtils.isNotBlank(recommendedId) && plan.getProposals() != null
                         && plan.getProposals().stream().anyMatch(proposal -> proposal != null
@@ -176,7 +175,7 @@ public class ItineraryPlanPageApplicationService {
                         && review.getProposalReviews() != null
                         && review.getProposalReviews().stream().anyMatch(item -> item != null
                                 && recommendedId.equals(item.proposalId()) && item.eligibleForRecommendation()),
-                () -> SystemIntervalException.of("已发布方案的推荐结果与审核不一致"));
+                () -> TripExceptions.system("已发布方案的推荐结果与审核不一致"));
         if (!StringUtils.equals(planId, plan.getPlanId())) {
             return null;
         }
@@ -186,14 +185,14 @@ public class ItineraryPlanPageApplicationService {
 
     private void requireConversation(String userId, String conversationId) {
         if (conversationDomainService.findByUseIdAndConversationId(userId, conversationId) == null) {
-            throw BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "当前用户没有访问该会话的权限");
+            throw TripExceptions.invalidRequest("当前用户没有访问该会话的权限");
         }
     }
 
     private TravelOrder requireOrder(String userId, String orderId) {
         TravelOrder order = StringUtils.isBlank(orderId) ? null : travelOrderDomainService.findByOrderIdAndUserId(orderId.trim(), userId);
         if (order == null) {
-            throw BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "当前用户没有访问该差旅单的权限");
+            throw TripExceptions.invalidRequest("当前用户没有访问该差旅单的权限");
         }
         return order;
     }

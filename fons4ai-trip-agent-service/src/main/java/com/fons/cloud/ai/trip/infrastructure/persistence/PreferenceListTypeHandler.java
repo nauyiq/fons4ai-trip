@@ -7,7 +7,7 @@ import com.alibaba.fastjson2.JSONReader;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONWriter;
 import com.fons.cloud.ai.trip.common.dto.preference.PreferenceData;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
 
@@ -37,13 +37,13 @@ public class PreferenceListTypeHandler extends BaseTypeHandler<List<PreferenceDa
         }
         try {
             if (!(JSON.parse(json) instanceof JSONArray array)) {
-                throw SystemIntervalException.of("偏好存储必须是 JSON 列表");
+                throw TripExceptions.system("偏好存储必须是 JSON 列表");
             }
             JSONArray normalized = new JSONArray();
             for (Object entry : array) {
                 if (!(entry instanceof JSONObject object) || !object.keySet().containsAll(FIELDS)
                         || object.keySet().stream().anyMatch(field -> !FIELDS.contains(field) && !LEGACY_FIELDS.contains(field))) {
-                    throw SystemIntervalException.of("偏好对象字段不符合统一契约");
+                    throw TripExceptions.system("偏好对象字段不符合统一契约");
                 }
                 // 旧记录可以直接读取；通过页面或工具修改后自然写回精简结构，无需数据库迁移任务。
                 JSONObject item = new JSONObject(object);
@@ -53,7 +53,7 @@ public class PreferenceListTypeHandler extends BaseTypeHandler<List<PreferenceDa
             return JSON.parseArray(normalized.toJSONString(), PreferenceData.Item.class,
                     JSONReader.Feature.ErrorOnUnknownProperties, JSONReader.Feature.ErrorOnEnumNotMatch);
         } catch (JSONException error) {
-            throw SystemIntervalException.of("偏好存储 JSON 无法解析", error);
+            throw TripExceptions.system("偏好存储 JSON 无法解析", error);
         }
     }
 

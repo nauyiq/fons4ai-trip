@@ -10,8 +10,7 @@ import com.fons.cloud.ai.trip.common.dto.VisaQuickCheckResult;
 import com.fons.cloud.ai.trip.common.dto.VisaRequirementResult;
 import com.fons.cloud.ai.trip.infrastructure.client.model.orizn.OriznVisaCheckResponse;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.OriznVisaConfigProperties;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.MediaType;
@@ -48,22 +47,22 @@ public class OriznVisaClient {
     private final String apiKey;
 
     public OriznVisaClient(RestClient.Builder builder, ObjectMapper objectMapper, OriznVisaConfigProperties properties) {
-        Assert.notNull(properties, () -> SystemIntervalException.of("签证服务配置不能为空"));
-        Assert.notBlank(properties.getBaseUrl(), () -> SystemIntervalException.of("签证服务地址不能为空"));
+        Assert.notNull(properties, () -> TripExceptions.system("签证服务配置不能为空"));
+        Assert.notBlank(properties.getBaseUrl(), () -> TripExceptions.system("签证服务地址不能为空"));
         URI baseUri;
         try {
             baseUri = URI.create(properties.getBaseUrl().trim());
         } catch (IllegalArgumentException e) {
-            throw SystemIntervalException.of("签证服务地址格式无效", e);
+            throw TripExceptions.system("签证服务地址格式无效", e);
         }
         Assert.isTrue(("https".equalsIgnoreCase(baseUri.getScheme()) || "http".equalsIgnoreCase(baseUri.getScheme()))
                         && baseUri.getHost() != null && baseUri.getRawQuery() == null && baseUri.getRawFragment() == null,
-                () -> SystemIntervalException.of("签证服务地址必须为合法的HTTP或HTTPS地址"));
+                () -> TripExceptions.system("签证服务地址必须为合法的HTTP或HTTPS地址"));
         validateTimeout(properties.getConnectTimeout(), "连接");
         validateTimeout(properties.getReadTimeout(), "读取");
         this.apiKey = StringUtils.trimToEmpty(properties.getApiKey());
         Assert.isTrue(apiKey.chars().noneMatch(c -> Character.isWhitespace(c) || Character.isISOControl(c)),
-                () -> SystemIntervalException.of("签证服务API Key不能包含空白或控制字符"));
+                () -> TripExceptions.system("签证服务API Key不能包含空白或控制字符"));
         HttpClient httpClient = HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout()).build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(properties.getReadTimeout());
@@ -78,11 +77,11 @@ public class OriznVisaClient {
             OriznVisaCheckResponse response = objectMapper.readValue(body, OriznVisaCheckResponse.class);
             Assert.isTrue(response != null && passport.equals(response.passport()) && destination.equals(response.destination())
                             && StringUtils.isNotBlank(response.requirement()) && response.visaRequired() != null,
-                    () -> SystemIntervalException.of("签证服务快速查询响应缺失必要字段"));
+                    () -> TripExceptions.external("签证服务快速查询响应缺失必要字段"));
             return new VisaQuickCheckResult(response.passport(), response.destination(), response.requirement(),
                     response.visaFreeDays(), response.visaRequired(), response.lastVerified());
         } catch (JsonProcessingException e) {
-            throw SystemIntervalException.of("签证服务快速查询响应格式无效");
+            throw TripExceptions.external("签证服务快速查询响应格式无效");
         }
     }
 
@@ -92,12 +91,12 @@ public class OriznVisaClient {
                 passport, destination, language);
         try {
             JsonNode root = objectMapper.readTree(body);
-            Assert.isTrue(root != null && root.isObject(), () -> SystemIntervalException.of("签证服务详情响应格式无效"));
+            Assert.isTrue(root != null && root.isObject(), () -> TripExceptions.external("签证服务详情响应格式无效"));
             JsonNode data = root.path("data");
             Assert.isTrue(data.isObject() && passport.equals(text(data, "passport"))
                             && destination.equals(text(data, "destination"))
                             && StringUtils.isNotBlank(text(data, "requirement")),
-                    () -> SystemIntervalException.of("签证服务详情响应缺失必要字段"));
+                    () -> TripExceptions.external("签证服务详情响应缺失必要字段"));
             Map<String, Object> extendedDetails = new LinkedHashMap<>();
             for (String field : EXTENDED_FIELDS) {
                 JsonNode value = data.path(field);
@@ -110,37 +109,37 @@ public class OriznVisaClient {
                     stringList(data, "documents_required"), stringList(data, "process"), stringList(data, "tips"),
                     integer(data, "passport_validity_months"), bool(data, "verified"), Map.copyOf(extendedDetails));
         } catch (JsonProcessingException e) {
-            throw SystemIntervalException.of("签证服务详情响应格式无效");
+            throw TripExceptions.external("签证服务详情响应格式无效");
         }
     }
 
     private String get(String path, Object... params) {
         if (apiKey.isEmpty()) {
-            throw SystemIntervalException.of("签证服务未配置，请联系管理员");
+            throw TripExceptions.system("签证服务未配置，请联系管理员");
         }
         try {
             String body = restClient.get().uri(path, params).header(API_KEY_HEADER, apiKey)
                     .accept(MediaType.APPLICATION_JSON).retrieve().body(String.class);
-            Assert.notBlank(body, () -> SystemIntervalException.of("签证服务返回空响应"));
+            Assert.notBlank(body, () -> TripExceptions.external("签证服务返回空响应"));
             return body;
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
             log.warn("[OriznVisaClient] 请求失败，httpStatus={}", status);
             if (status == 400) {
-                throw BusinessRuntimeException.of(TripAgentToolResultCode.INVALID_PARAM.getCode(),
+                throw TripExceptions.validation(TripAgentToolResultCode.INVALID_PARAM.getCode(),
                         "签证服务不支持所提供的国家代码或语言，请核对后重试");
             }
             if (status == 404) {
-                throw BusinessRuntimeException.of(TripAgentToolResultCode.VISA_RECORD_NOT_FOUND.getCode(),
+                throw TripExceptions.business(TripAgentToolResultCode.VISA_RECORD_NOT_FOUND.getCode(),
                         "签证服务未收录该护照签发国与目的地组合，不能据此认定免签");
             }
             String message = status == 429 ? "签证服务请求额度已用尽，请稍后重试或联系管理员"
                     : status == 401 || status == 403 ? "签证服务凭据或套餐不可用，请联系管理员"
                     : "签证服务请求失败，请稍后重试";
-            throw SystemIntervalException.of(message);
+            throw TripExceptions.external(message);
         } catch (RestClientException e) {
             log.warn("[OriznVisaClient] 请求异常，exceptionType={}", e.getClass().getSimpleName());
-            throw SystemIntervalException.of("签证服务请求失败，请稍后重试");
+            throw TripExceptions.external("签证服务请求失败，请稍后重试");
         }
     }
 
@@ -170,6 +169,6 @@ public class OriznVisaClient {
 
     private void validateTimeout(Duration timeout, String label) {
         Assert.isTrue(timeout != null && !timeout.isNegative() && !timeout.isZero(),
-                () -> SystemIntervalException.of("签证服务" + label + "超时必须大于0"));
+                () -> TripExceptions.system("签证服务" + label + "超时必须大于0"));
     }
 }

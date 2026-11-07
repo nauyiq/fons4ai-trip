@@ -1,7 +1,7 @@
 package com.fons.cloud.ai.trip.infrastructure.render;
 
 import com.fons.cloud.ai.trip.common.dto.ItineraryPublicationSource;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
@@ -36,7 +36,7 @@ public class ItineraryPlanHtmlRenderer {
         context.setVariable("page", viewAssembler.assemble(source));
         String html = templateEngine.process(TEMPLATE_NAME, context);
         if (StringUtils.isBlank(html)) {
-            throw SystemIntervalException.of("行程方案HTML渲染结果为空");
+            throw TripExceptions.system("行程方案HTML渲染结果为空");
         }
         return html;
     }

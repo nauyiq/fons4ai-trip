@@ -10,7 +10,7 @@ import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
 import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +32,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
     public void validateApprovalResume(AgentRequest request) {
         Agent master = agentRegistry.getAgent(TripAgent.MASTER_AGENT.getAgentName());
         if (!(master instanceof AgentScopeHarnessAgent harness)) {
-            throw SystemIntervalException.of("MasterAgent不支持本地整批审批恢复");
+            throw TripExceptions.system("MasterAgent不支持本地整批审批恢复");
         }
         harness.validateApprovalResume(request);
     }
@@ -43,7 +43,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
             String masterAgentName = TripAgent.MASTER_AGENT.getAgentName();
             Agent masterAgent = agentRegistry.getAgent(masterAgentName);
             if (masterAgent == null) {
-                return Mono.error(SystemIntervalException.of("MasterAgent未注册，agentName: " + masterAgentName));
+                return Mono.error(TripExceptions.system("MasterAgent未注册，agentName: " + masterAgentName));
             }
 
             /*
@@ -53,7 +53,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
              */
             AgentRun masterRun = masterAgent.run(context.getUserInput());
             if (masterRun == null) {
-                return Mono.error(SystemIntervalException.of(
+                return Mono.error(TripExceptions.system(
                         "MasterAgent返回的AgentRun不能为空"));
             }
 
@@ -67,7 +67,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
              * 并在Pipeline取消时向MasterAgent传播取消信号。
              */
             return scope.relay(masterRun)
-                    .switchIfEmpty(Mono.error(SystemIntervalException.of("MasterAgent未返回AgentRunResult")))
+                    .switchIfEmpty(Mono.error(TripExceptions.system("MasterAgent未返回AgentRunResult")))
                     .map(result -> completeMasterRun(context, result))
                     .doFinally(signal -> pageNotificationRegistry.unbindAgentRun(masterRun.runId(), scope.runId()));
         });
@@ -83,7 +83,7 @@ public class MasterExecuteTaskStepHandler extends AbstractAgentExecuteHandler {
             AgentPipelineExecuteContext context,
             AgentRunResult result) {
         if (result == null || result.getState() == null) {
-            throw SystemIntervalException.of("MasterAgent返回了无效的AgentRunResult");
+            throw TripExceptions.system("MasterAgent返回了无效的AgentRunResult");
         }
         context.masterAgentResult(result);
         log.info("MasterAgent执行分段结束，agentRunId:{}, state:{}", result.getRunId(), result.getState());

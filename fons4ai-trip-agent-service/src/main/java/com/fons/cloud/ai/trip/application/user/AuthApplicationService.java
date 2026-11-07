@@ -8,7 +8,7 @@ import com.fons.cloud.ai.trip.common.vo.UserInfo;
 import com.fons.cloud.ai.trip.domain.entity.User;
 import com.fons.cloud.ai.trip.domain.service.UserDomainService;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -35,8 +35,8 @@ public class AuthApplicationService {
     public String login(LoginRequest request) {
         User user = userDomainService.findByUsername(request.getUsername());
 
-        Assert.notNull(user, () -> BusinessRuntimeException.of(TripAgentResultCode.USER_NOT_EXIST));
-        Assert.isTrue(passwordEncoder.matches(request.getPassword(), user.getPassword()), () -> BusinessRuntimeException.of(TripAgentResultCode.PASSWORD_INCORRECT));
+        Assert.notNull(user, () -> TripExceptions.authentication(TripAgentResultCode.USER_NOT_EXIST));
+        Assert.isTrue(passwordEncoder.matches(request.getPassword(), user.getPassword()), () -> TripExceptions.authentication(TripAgentResultCode.PASSWORD_INCORRECT));
 
         saTokenAuthTemplate.login(user.getUserId());
         return saTokenAuthTemplate.getTokenValue();
@@ -58,7 +58,7 @@ public class AuthApplicationService {
     public UserInfo getLoginInfo() {
         String userId = saTokenAuthTemplate.getCurrentLoginIdAsString();
         User user = userDomainService.findByUserId(userId);
-        Assert.notNull(user, () -> BusinessRuntimeException.of(TripAgentResultCode.LOGIN_EXPIRED));
+        Assert.notNull(user, () -> TripExceptions.authentication(TripAgentResultCode.LOGIN_EXPIRED));
 
         return UserInfo.builder()
                 .userId(user.getUserId())

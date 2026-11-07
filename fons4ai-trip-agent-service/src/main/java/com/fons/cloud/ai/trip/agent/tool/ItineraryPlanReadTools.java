@@ -5,7 +5,10 @@ import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.response.ItineraryCandidatesResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.BsException;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import io.agentscope.core.agent.RuntimeContext;
@@ -64,8 +67,8 @@ public class ItineraryPlanReadTools implements BaseTool {
             String message = "累计候选读取完成：去程" + result.outbound().size()
                     + "个、返程" + result.inbound().size() + "个、酒店及房型报价" + result.hotels().size() + "个。";
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][query_itinerary_candidates] 候选读取未完成，userId={}, code={}", userId, e.getCode());
+        } catch (BusinessRuntimeException | ValidationException e) {
+            log.warn("[TOOL][query_itinerary_candidates] 候选读取未完成，userId={}, code={}", userId, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][query_itinerary_candidates] 候选读取失败，userId={}", userId, e);
@@ -97,9 +100,9 @@ public class ItineraryPlanReadTools implements BaseTool {
                         "当前会话未找到对应的行程规划结果，请使用plan_itinerary实际返回的planId。");
             }
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "完整行程规划结果读取成功。", result);
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             log.warn("[TOOL][query_itinerary_plan] 规划结果读取未完成，userId={}, planId={}, code={}",
-                    userId, normalizedPlanId, e.getCode());
+                    userId, normalizedPlanId, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][query_itinerary_plan] 规划结果读取失败，userId={}, planId={}", userId, normalizedPlanId, e);
@@ -134,16 +137,16 @@ public class ItineraryPlanReadTools implements BaseTool {
         return normalized;
     }
 
-    private TripAgentToolResultCode resolveBusinessErrorCode(BusinessRuntimeException e) {
-        if (ResultCode.ILLEGAL_REQUEST_LIMITED.getCode().equals(e.getCode())) {
+    private TripAgentToolResultCode resolveBusinessErrorCode(BsException e) {
+        if (ResultCode.ILLEGAL_REQUEST_LIMITED.getCode().equals(e.getExceptionCode().getCode())) {
             return TripAgentToolResultCode.INVALID_STATE;
         }
-        return ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())
+        return ResultCode.PARAMS_ERROR.getCode().equals(e.getExceptionCode().getCode())
                 ? TripAgentToolResultCode.INVALID_PARAM : TripAgentToolResultCode.INTERNAL_ERROR;
     }
 
-    private BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 
     @Override

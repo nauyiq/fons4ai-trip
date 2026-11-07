@@ -4,8 +4,11 @@ import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.VisaQuickCheckResult;
 import com.fons.cloud.ai.trip.common.dto.VisaRequirementResult;
 import com.fons.cloud.ai.trip.infrastructure.client.OriznVisaClient;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.common.exception.BsException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.ExternalException;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import com.fons.cloud.common.result.R;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
@@ -51,11 +54,11 @@ public class VisaTools implements BaseTool {
             VisaQuickCheckResult result = oriznVisaClient.quickCheck(normalizedPassport, normalizedDestination);
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(),
                     "签证快速查询成功，请核对目的地和护照签发国，并以官方最新入境规定为准。", result);
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             log.warn("[TOOL][quick_visa_check] 业务查询未完成，passport={}, destination={}, code={}",
-                    normalizedPassport, normalizedDestination, e.getCode());
+                    normalizedPassport, normalizedDestination, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessCode(e), e.getMessage());
-        } catch (SystemIntervalException e) {
+        } catch (SystemIntervalException | ExternalException e) {
             log.warn("[TOOL][quick_visa_check] 服务不可用，passport={}, destination={}",
                     normalizedPassport, normalizedDestination);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), e.getMessage());
@@ -91,11 +94,11 @@ public class VisaTools implements BaseTool {
             VisaRequirementResult result = oriznVisaClient.checkRequirement(normalizedPassport, normalizedDestination, language);
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(),
                     "签证详情查询成功；仅使用实际返回的字段，并以官方最新入境规定为准。", result);
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             log.warn("[TOOL][check_visa_requirement] 业务查询未完成，passport={}, destination={}, code={}",
-                    normalizedPassport, normalizedDestination, e.getCode());
+                    normalizedPassport, normalizedDestination, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessCode(e), e.getMessage());
-        } catch (SystemIntervalException e) {
+        } catch (SystemIntervalException | ExternalException e) {
             log.warn("[TOOL][check_visa_requirement] 服务不可用，passport={}, destination={}",
                     normalizedPassport, normalizedDestination);
             return R.failed(TripAgentToolResultCode.INTERNAL_ERROR.getCode(), e.getMessage());
@@ -115,10 +118,10 @@ public class VisaTools implements BaseTool {
         return code.length() == 3 && code.chars().allMatch(c -> c >= 'A' && c <= 'Z');
     }
 
-    private String resolveBusinessCode(BusinessRuntimeException exception) {
-        if (TripAgentToolResultCode.INVALID_PARAM.getCode().equals(exception.getCode())
-                || TripAgentToolResultCode.VISA_RECORD_NOT_FOUND.getCode().equals(exception.getCode())) {
-            return exception.getCode();
+    private String resolveBusinessCode(BsException exception) {
+        if (TripAgentToolResultCode.INVALID_PARAM.getCode().equals(exception.getExceptionCode().getCode())
+                || TripAgentToolResultCode.VISA_RECORD_NOT_FOUND.getCode().equals(exception.getExceptionCode().getCode())) {
+            return exception.getExceptionCode().getCode();
         }
         return TripAgentToolResultCode.INTERNAL_ERROR.getCode();
     }

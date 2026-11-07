@@ -4,7 +4,7 @@ import com.fons.cloud.ai.trip.common.constants.PreferenceChoice;
 import com.fons.cloud.ai.trip.common.constants.PreferenceGroup;
 import com.fons.cloud.ai.trip.common.constants.PreferenceKey;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,11 +75,11 @@ public final class PreferenceCatalog {
      */
     public static PreferenceData.Option require(String key) {
         if (key == null) {
-            throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID);
+            throw TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID);
         }
         PreferenceKey definition = PreferenceKey.fromCode(key);
         return items().stream().filter(item -> item.key().equals(definition.getCode())).findFirst()
-                .orElseThrow(() -> BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID));
+                .orElseThrow(() -> TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID));
     }
 
     /**
@@ -94,14 +94,14 @@ public final class PreferenceCatalog {
         return switch (definition.type()) {
             case SINGLE -> {
                 if (!(value instanceof String text) || !definition.options().contains(text)) {
-                    throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID);
+                    throw TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID);
                 }
                 yield value;
             }
             case MULTI -> {
                 if (!(value instanceof List<?> values) || values.isEmpty()
                         || values.stream().anyMatch(entry -> !(entry instanceof String) || !definition.options().contains(entry))) {
-                    throw BusinessRuntimeException.of(TripAgentResultCode.PREFERENCE_INVALID);
+                    throw TripExceptions.validation(TripAgentResultCode.PREFERENCE_INVALID);
                 }
                 List<String> normalized = new ArrayList<>();
                 for (String code : definition.options()) {

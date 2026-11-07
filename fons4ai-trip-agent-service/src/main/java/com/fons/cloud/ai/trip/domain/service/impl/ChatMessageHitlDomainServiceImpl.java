@@ -6,7 +6,7 @@ import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
 import com.fons.cloud.ai.trip.domain.entity.ChatMessageHitl;
 import com.fons.cloud.ai.trip.domain.mapper.ChatMessageHitlMapper;
 import com.fons.cloud.ai.trip.domain.service.ChatMessageHitlDomainService;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.springframework.stereotype.Service;
 import java.util.List;
 
@@ -84,7 +84,7 @@ public class ChatMessageHitlDomainServiceImpl extends ServiceImpl<ChatMessageHit
                             ChatMessageHitlStatus status) {
         if (status != ChatMessageHitlStatus.PENDING && status != ChatMessageHitlStatus.CONSUMED
                 && status != ChatMessageHitlStatus.FAILED) {
-            throw SystemIntervalException.of("恢复票证只能释放、消费或标记失败");
+            throw TripExceptions.system("恢复票证只能释放、消费或标记失败");
         }
         var update = Wrappers.lambdaUpdate(ChatMessageHitl.class)
                 .eq(ChatMessageHitl::getConversationId, conversationId)

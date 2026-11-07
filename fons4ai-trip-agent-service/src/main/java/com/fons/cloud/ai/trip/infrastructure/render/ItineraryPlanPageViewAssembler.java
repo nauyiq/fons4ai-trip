@@ -14,7 +14,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TransportO
 import com.fons.cloud.ai.trip.common.response.ItineraryProposalReview;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewIssue;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
@@ -47,12 +47,12 @@ public class ItineraryPlanPageViewAssembler {
     public ItineraryPlanPageView assemble(ItineraryPublicationSource source) {
         if (source == null || source.planningResult() == null || source.reviewResult() == null
                 || source.recommendedProposal() == null) {
-            throw SystemIntervalException.of("行程页面缺少规划或审核数据");
+            throw TripExceptions.system("行程页面缺少规划或审核数据");
         }
         ItineraryPlanningResult plan = source.planningResult();
         ItineraryReviewResult review = source.reviewResult();
         if (plan.getUserRequest() == null || plan.getProposals() == null || !StringUtils.equals(plan.getPlanId(), review.getPlanId())) {
-            throw SystemIntervalException.of("行程页面的规划与审核数据不一致");
+            throw TripExceptions.system("行程页面的规划与审核数据不一致");
         }
         Map<String, ItineraryProposalReview> proposalReviews = review.getProposalReviews() == null
                 ? Map.of() : review.getProposalReviews().stream()
@@ -68,11 +68,11 @@ public class ItineraryPlanPageViewAssembler {
         ItineraryProposalPageView recommended = null;
         for (Proposal proposal : plan.getProposals()) {
             if (proposal == null || StringUtils.isBlank(proposal.proposalId())) {
-                throw SystemIntervalException.of("行程页面包含无效的代表方案");
+                throw TripExceptions.system("行程页面包含无效的代表方案");
             }
             ItineraryProposalReview proposalReview = proposalReviews.get(proposal.proposalId());
             if (proposalReview == null || proposalReview.verdict() == null) {
-                throw SystemIntervalException.of("代表方案缺少审核结论：" + proposal.proposalId());
+                throw TripExceptions.system("代表方案缺少审核结论：" + proposal.proposalId());
             }
             ItineraryProposalPageView view = toProposalView(plan, proposal, proposalReview, issues);
             if (proposal.proposalId().equals(recommendedId)) {
@@ -82,7 +82,7 @@ public class ItineraryPlanPageViewAssembler {
             }
         }
         if (recommended == null || !recommended.eligibleForRecommendation()) {
-            throw SystemIntervalException.of("行程页面的推荐方案与审核结果不一致");
+            throw TripExceptions.system("行程页面的推荐方案与审核结果不一致");
         }
 
         ItineraryPlanningResult.TripRequest request = plan.getUserRequest();
@@ -157,7 +157,7 @@ public class ItineraryPlanPageViewAssembler {
             case PASS -> "pass";
             case WARNING -> "warning";
             case BLOCKED -> "blocked";
-            default -> throw SystemIntervalException.of("不支持的行程审核结论：" + verdict);
+            default -> throw TripExceptions.system("不支持的行程审核结论：" + verdict);
         };
     }
 

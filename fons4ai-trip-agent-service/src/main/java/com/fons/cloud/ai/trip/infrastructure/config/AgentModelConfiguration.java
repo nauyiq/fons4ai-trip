@@ -5,7 +5,7 @@ import com.fons.cloud.ai.trip.common.constants.ModelMessageFormat;
 import com.fons.cloud.ai.trip.common.constants.ModelProtocol;
 import com.fons.cloud.ai.trip.common.constants.ModelType;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.ModelConfigProperties;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
@@ -116,37 +116,37 @@ public class AgentModelConfiguration {
     private ModelConfigProperties.ModelConfig validModelConfig(ModelType type) {
         Map<ModelType, ModelConfigProperties.ModelConfig> models = modelConfigProperties.getConfigs();
         if (MapUtils.isEmpty(models) || !models.containsKey(type)) {
-            throw SystemIntervalException.of("未找到TRAVEL-AGENT模型配置, 请检查");
+            throw TripExceptions.system("未找到TRAVEL-AGENT模型配置, 请检查");
         }
         ModelConfigProperties.ModelConfig config = models.get(type);
         if (config == null || StringUtils.isAnyBlank(config.getApiKey(), config.getBaseUrl(), config.getModelName())) {
-            throw SystemIntervalException.of("模型配置不合法, 请检查, modelType:" + type);
+            throw TripExceptions.system("模型配置不合法, 请检查, modelType:" + type);
         }
         if (config.getProtocol() == null || config.getMessageFormat() == null || config.getEndpointType() == null) {
-            throw SystemIntervalException.of("模型协议、消息格式和端点类型不能为空, modelType:" + type);
+            throw TripExceptions.system("模型协议、消息格式和端点类型不能为空, modelType:" + type);
         }
         validateBaseUrl(type, config.getBaseUrl());
         if (config.getExtraBody() == null) {
-            throw SystemIntervalException.of("模型extra-body不能显式配置为null, modelType:" + type);
+            throw TripExceptions.system("模型extra-body不能显式配置为null, modelType:" + type);
         }
         for (String field : config.getExtraBody().keySet()) {
             if (StringUtils.isBlank(field) || RESERVED_BODY_FIELDS.contains(field)) {
-                throw SystemIntervalException.of("模型extra-body包含空字段或AgentScope管理的协议字段, modelType:" + type);
+                throw TripExceptions.system("模型extra-body包含空字段或AgentScope管理的协议字段, modelType:" + type);
             }
         }
         if (config.getProtocol() == ModelProtocol.DASHSCOPE) {
             if (config.getMessageFormat() != ModelMessageFormat.STANDARD) {
-                throw SystemIntervalException.of("DashScope原生协议只接受STANDARD消息格式, modelType:" + type);
+                throw TripExceptions.system("DashScope原生协议只接受STANDARD消息格式, modelType:" + type);
             }
             if (config.getExtraBody().keySet().stream().anyMatch(field -> !"enable_thinking".equals(field))) {
-                throw SystemIntervalException.of("当前DashScope原生适配的extra-body只支持enable_thinking, modelType:" + type);
+                throw TripExceptions.system("当前DashScope原生适配的extra-body只支持enable_thinking, modelType:" + type);
             }
         } else if (config.getEndpointType() != EndpointType.AUTO) {
-            throw SystemIntervalException.of("endpoint-type仅适用于DashScope原生协议, modelType:" + type);
+            throw TripExceptions.system("endpoint-type仅适用于DashScope原生协议, modelType:" + type);
         }
         if (config.getExtraBody().containsKey("enable_thinking")
                 && !(config.getExtraBody().get("enable_thinking") instanceof Boolean)) {
-            throw SystemIntervalException.of("模型enable_thinking必须是布尔值, modelType:" + type);
+            throw TripExceptions.system("模型enable_thinking必须是布尔值, modelType:" + type);
         }
         return config;
     }
@@ -154,10 +154,10 @@ public class AgentModelConfiguration {
     private void validateBaseUrl(ModelType type, String baseUrl) {
         try {
             if (!HttpUtil.isHttp(baseUrl) && !HttpUtil.isHttps(baseUrl)) {
-                throw SystemIntervalException.of("模型base-url必须是有效的HTTP服务地址, modelType:" + type);
+                throw TripExceptions.system("模型base-url必须是有效的HTTP服务地址, modelType:" + type);
             }
         } catch (Exception e) {
-            throw SystemIntervalException.of("模型base-url格式不合法, modelType:" + type);
+            throw TripExceptions.system("模型base-url格式不合法, modelType:" + type);
         }
     }
 }

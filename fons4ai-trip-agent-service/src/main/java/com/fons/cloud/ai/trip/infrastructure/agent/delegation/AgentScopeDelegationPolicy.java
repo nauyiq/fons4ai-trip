@@ -1,6 +1,6 @@
 package com.fons.cloud.ai.trip.infrastructure.agent.delegation;
 
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 /**
  * AgentScope委派工具的运行约束，不承载路由、业务规则或失败降级策略。
@@ -30,7 +30,7 @@ public record AgentScopeDelegationPolicy(
 
     public AgentScopeDelegationPolicy {
         if (syncTimeoutSeconds < 1 || syncTimeoutSeconds > MAX_SYNC_TIMEOUT_SECONDS) {
-            throw SystemIntervalException.of("委派同步等待时间必须为1到600秒");
+            throw TripExceptions.system("委派同步等待时间必须为1到600秒");
         }
     }
 }

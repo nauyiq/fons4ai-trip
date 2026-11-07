@@ -9,7 +9,7 @@ import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
 import com.fons.cloud.ai.agent.api.AgentRun;
 import java.util.ArrayList;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.Getter;
 import org.apache.commons.collections4.CollectionUtils;
 
@@ -95,7 +95,7 @@ public final class AgentPipelineExecuteContext {
     }
 
     public static AgentPipelineExecuteContext create(AgentRequest userInput) {
-        Assert.notNull(userInput, () -> SystemIntervalException.of("Agent请求不能为空"));
+        Assert.notNull(userInput, () -> TripExceptions.system("Agent请求不能为空"));
         AgentPipelineExecuteContext context = new AgentPipelineExecuteContext(userInput);
         if (userInput.getHitlRequestInfo() != null) {
             // 存在中断恢复请求 则直接路由到任务节点
@@ -118,7 +118,7 @@ public final class AgentPipelineExecuteContext {
 
     public void masterAgentResult(AgentRunResult masterAgentResult) {
         Assert.notNull(masterAgentResult,
-                () -> SystemIntervalException.of("MasterAgent执行结果不能为空"));
+                () -> TripExceptions.system("MasterAgent执行结果不能为空"));
         this.masterAgentResult = masterAgentResult;
     }
 

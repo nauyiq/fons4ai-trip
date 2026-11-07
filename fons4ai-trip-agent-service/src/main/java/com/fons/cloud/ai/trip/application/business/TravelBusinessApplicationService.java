@@ -22,8 +22,8 @@ import com.fons.cloud.ai.trip.domain.mapper.TravelOrderItineraryPlanMapper;
 import com.fons.cloud.ai.trip.domain.service.ApprovalRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.BookingRecordDomainService;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import lombok.RequiredArgsConstructor;
@@ -66,7 +66,7 @@ public class TravelBusinessApplicationService {
             ApprovalRecord existRecord = null;
             if (StringUtils.isNotBlank(existOrder.getApprovalId())) {
                 existRecord = approvalRecordDomainService.getById(existOrder.getApprovalId());
-                Assert.notNull(existRecord, () -> BusinessRuntimeException.of(TripAgentResultCode.APPROVAL_RECORD_NOT_EXIST));
+                Assert.notNull(existRecord, () -> TripExceptions.business(TripAgentResultCode.APPROVAL_RECORD_NOT_EXIST));
             }
             return R.duplicateSuccess(buildApprovalResult(existOrder, existRecord));
         } else {
@@ -75,15 +75,15 @@ public class TravelBusinessApplicationService {
             ApprovalRecord approvalRecord = transactionTemplate.execute(status -> {
                 try {
                     // 1. 新增差旅单
-                    Assert.isTrue(travelOrderDomainService.save(order), () -> SystemIntervalException.of("新增差旅单失败"));
+                    Assert.isTrue(travelOrderDomainService.save(order), () -> TripExceptions.system("新增差旅单失败"));
                     log.info("1. 差旅单已创建, orderId:{}", order.getOrderId());
                     // 2. 提交审批单
                     ApprovalRecord record = approvalRecordDomainService.submit(order);
-                    Assert.notNull(record, () -> SystemIntervalException.of("提交审批单失败"));
+                    Assert.notNull(record, () -> TripExceptions.system("提交审批单失败"));
                     log.info("2. 审批单已经创建， processInstanceId={}", record.getProcessInstanceId());
                     // 3. 关联审批单
                     order.submitted(record.getProcessInstanceId());
-                    Assert.isTrue(travelOrderDomainService.saveOrUpdate(order), () -> SystemIntervalException.of("差旅单关联审批单失败"));
+                    Assert.isTrue(travelOrderDomainService.saveOrUpdate(order), () -> TripExceptions.system("差旅单关联审批单失败"));
                     log.info("3. 差旅单关联审批单成功， 差旅单={}, 审批单{}", order.getOrderId(), order.getApprovalId());
                     return record;
                 } catch (Exception e) {
@@ -200,14 +200,14 @@ public class TravelBusinessApplicationService {
                                 && StringUtils.equals(current.getDepartureDate(), originalDepartureDate)
                                 && StringUtils.equals(current.getReturnDate(), originalReturnDate)
                                 && StringUtils.equals(current.getPurpose(), originalPurpose),
-                        () -> SystemIntervalException.of("差旅单已发生变化，请重新查询后修改"));
+                        () -> TripExceptions.system("差旅单已发生变化，请重新查询后修改"));
                 boolean oldApprovalCancelled = false;
                 if (StringUtils.isNotBlank(oldApprovalId)) {
                     ApprovalRecord oldRecord = approvalRecordDomainService.getById(oldApprovalId);
-                    Assert.notNull(oldRecord, () -> BusinessRuntimeException.of(TripAgentResultCode.APPROVAL_RECORD_NOT_EXIST));
+                    Assert.notNull(oldRecord, () -> TripExceptions.business(TripAgentResultCode.APPROVAL_RECORD_NOT_EXIST));
                     if (oldRecord.getStatus() != ApprovalStatus.CANCELLED) {
                         oldRecord.cancel("差旅申请修改，撤销旧审批并重新提交");
-                        Assert.isTrue(approvalRecordDomainService.updateById(oldRecord), () -> SystemIntervalException.of("撤销旧审批失败"));
+                        Assert.isTrue(approvalRecordDomainService.updateById(oldRecord), () -> TripExceptions.system("撤销旧审批失败"));
                         oldApprovalCancelled = true;
                     }
                 }
@@ -215,7 +215,7 @@ public class TravelBusinessApplicationService {
                 // 重置为草稿并保存字段变更
                 order.setStatus(TravelOrderStatus.DRAFT);
                 order.setApprovalId(null);
-                Assert.isTrue(travelOrderDomainService.updateById(order), () -> SystemIntervalException.of("差旅单字段更新失败"));
+                Assert.isTrue(travelOrderDomainService.updateById(order), () -> TripExceptions.system("差旅单字段更新失败"));
                 if (itineraryChanged) {
                     // 与订单修改同事务删除当前关联；回滚时保留原方案。
                     itineraryPlanMapper.deleteById(order.getOrderId());
@@ -223,9 +223,9 @@ public class TravelBusinessApplicationService {
 
                 // 发起新的审批
                 ApprovalRecord newRecord = approvalRecordDomainService.submit(order);
-                Assert.notNull(newRecord, () -> SystemIntervalException.of("提交新审批失败"));
+                Assert.notNull(newRecord, () -> TripExceptions.system("提交新审批失败"));
                 order.submitted(newRecord.getProcessInstanceId());
-                Assert.isTrue(travelOrderDomainService.updateById(order), () -> SystemIntervalException.of("差旅单关联新审批失败"));
+                Assert.isTrue(travelOrderDomainService.updateById(order), () -> TripExceptions.system("差旅单关联新审批失败"));
 
                 log.info("【修改差旅单】修改完成，orderId:{}, newApprovalId:{}", order.getOrderId(), newRecord.getProcessInstanceId());
                 String message = oldApprovalCancelled

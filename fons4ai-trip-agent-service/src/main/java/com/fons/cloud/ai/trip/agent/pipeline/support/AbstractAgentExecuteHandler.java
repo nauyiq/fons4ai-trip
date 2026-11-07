@@ -13,8 +13,8 @@ import com.fons.cloud.ai.trip.agent.pipeline.AgentExecuteHandler;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutionStep;
 import com.fons.cloud.ai.trip.agent.pipeline.AgentPipelineExecuteContext;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import io.agentscope.core.message.GenerateReason;
 import io.agentscope.core.message.Msg;
@@ -43,13 +43,13 @@ public abstract class AbstractAgentExecuteHandler implements AgentExecuteHandler
     public final Mono<Void> handle(AgentPipelineExecuteContext request, ReactiveTaskScope<String> scope) {
         return Mono.defer(() -> {
             // 基础数据校验
-            Assert.notNull(request, () -> SystemIntervalException.of("Agent管道工作流执行上下文不能为空"));
-            Assert.notNull(request.getStep(), () -> SystemIntervalException.of("Agent管道执行上下文步骤为空， 请检查数据"));
+            Assert.notNull(request, () -> TripExceptions.system("Agent管道工作流执行上下文不能为空"));
+            Assert.notNull(request.getStep(), () -> TripExceptions.system("Agent管道执行上下文步骤为空， 请检查数据"));
             Assert.notNull(request.getUserInput(),
-                    () -> SystemIntervalException.of("Agent请求为空， 请检查数据"));
+                    () -> TripExceptions.system("Agent请求为空， 请检查数据"));
             Assert.isTrue(CollectionUtils.isNotEmpty(request.getUserInput().getContents())
                             || request.getUserInput().getHitlRequestInfo() != null,
-                    () -> SystemIntervalException.of("Agent请求内容和恢复信息不能同时为空"));
+                    () -> TripExceptions.system("Agent请求内容和恢复信息不能同时为空"));
 
             if (request.getStep() != currentStep()) {
                 // 步骤不相等, 则跳过当前步骤
@@ -58,10 +58,10 @@ public abstract class AbstractAgentExecuteHandler implements AgentExecuteHandler
             }
 
             return execute(request, scope)
-                    .switchIfEmpty(Mono.error(SystemIntervalException.of(currentStep() + "执行结果为空")))
+                    .switchIfEmpty(Mono.error(TripExceptions.system(currentStep() + "执行结果为空")))
                     .flatMap(result -> {
                         if (!result.success) {
-                            return Mono.error(BusinessRuntimeException.of(TripAgentResultCode.AGENT_PIPELINE_HANDLE_RESULT_FAILED));
+                            return Mono.error(TripExceptions.system(TripAgentResultCode.AGENT_PIPELINE_HANDLE_RESULT_FAILED, null));
                         }
                         request.nextStep(result.nextStep == null? nextStep() : result.nextStep);
                         return Mono.empty();

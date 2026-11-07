@@ -2,7 +2,7 @@ package com.fons.cloud.ai.trip.infrastructure.middleware;
 
 import com.alibaba.fastjson2.JSON;
 import com.fons.cloud.ai.trip.infrastructure.agent.delegation.AgentScopeDelegationPolicy;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
@@ -80,7 +80,7 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
 
     public AgentScopeDelegationMiddleware(AgentScopeDelegationPolicy policy) {
         if (policy == null) {
-            throw SystemIntervalException.of("AgentScope委派策略不能为空");
+            throw TripExceptions.system("AgentScope委派策略不能为空");
         }
         this.policy = policy;
     }
@@ -91,7 +91,7 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
         return Flux.defer(() -> {
             if (policy.requireInitialTask() || policy.forceSync() || policy.blockPendingApproval()) {
                 if (!(agent instanceof ReActAgent nativeAgent)) {
-                    throw SystemIntervalException.of("委派中间件需要AgentScope原生ReActAgent");
+                    throw TripExceptions.system("委派中间件需要AgentScope原生ReActAgent");
                 }
                 // Harness已完成构建及Toolkit复制，此处取得的是最终使用的原生Toolkit。
                 // 先完成一次性工具初始化，再进入推理或执行，不能只收紧模型可见Schema。
@@ -176,13 +176,13 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
             // 原生工具包装本身就是初始化标记，无需额外持有Agent或维护运行状态表。
             if (toolkit.getTool("agent_spawn") instanceof DelegationTool adapted) {
                 if (!policy.equals(adapted.delegationPolicy)) {
-                    throw SystemIntervalException.of("同一Agent不能注册不同的委派策略");
+                    throw TripExceptions.system("同一Agent不能注册不同的委派策略");
                 }
                 adaptedToolkits.put(toolkit, true);
                 return;
             }
             if (!(toolkit.getTool("agent_spawn") instanceof ToolBase)) {
-                throw SystemIntervalException.of("委派适配需要Harness原生agent_spawn工具");
+                throw TripExceptions.system("委派适配需要Harness原生agent_spawn工具");
             }
             List<DelegationTool> adaptedTools = new ArrayList<>();
             for (String name : List.copyOf(toolkit.getToolNames())) {
@@ -193,7 +193,7 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
                     continue;
                 }
                 if (!(toolkit.getTool(name) instanceof ToolBase delegate)) {
-                    throw SystemIntervalException.of("委派适配需要ToolBase工具：" + name);
+                    throw TripExceptions.system("委派适配需要ToolBase工具：" + name);
                 }
                 Map<String, Object> parameters = spawn && policy.requireInitialTask()
                         ? requireTask(delegate.getParameters()) : delegate.getParameters();
@@ -321,37 +321,37 @@ public final class AgentScopeDelegationMiddleware implements MiddlewareBase {
             RuntimeContext context = param.getRuntimeContext();
             AgentState parent = RuntimeContext.resolveAgentState(context, param.getAgent());
             if (context == null || parent == null) {
-                throw SystemIntervalException.of("当前调用缺少父Agent运行上下文或状态");
+                throw TripExceptions.system("当前调用缺少父Agent运行上下文或状态");
             }
             if (!(context.get(AgentSpawnTool.CTX_AGENT_MANAGER) instanceof DefaultAgentManager manager)) {
-                throw SystemIntervalException.of("当前调用缺少SDK子Agent管理器");
+                throw TripExceptions.system("当前调用缺少SDK子Agent管理器");
             }
             List<SpawnEntry> entries = parent.getToolContext().getSpawnRegistry().values().stream()
                     .filter(entry -> matchesTarget(entry, param.getInput()))
                     .toList();
             if ("agent_send".equals(getName()) && entries.isEmpty()) {
-                throw SystemIntervalException.of("子会话未登记，须使用原始agent_key或通过label参数指定创建时的label");
+                throw TripExceptions.system("子会话未登记，须使用原始agent_key或通过label参数指定创建时的label");
             }
             List<PendingApproval> pending = new ArrayList<>();
             for (SpawnEntry entry : entries) {
                 // 子类型从父登记表解析；SDK factory可能返回Harness或ReActAgent，均使用公开API。
                 Agent child = manager.createAgentIfPresent(entry.agentId(), context)
-                        .orElseThrow(() -> SystemIntervalException.of("已登记的子Agent类型无法解析：" + entry.agentId()));
+                        .orElseThrow(() -> TripExceptions.system("已登记的子Agent类型无法解析：" + entry.agentId()));
                 ReActAgent nativeChild;
                 if (child instanceof ReActAgent reactAgent) {
                     nativeChild = reactAgent;
                 } else if (child instanceof HarnessAgent harnessAgent) {
                     nativeChild = harnessAgent.getDelegate();
                 } else {
-                    throw SystemIntervalException.of("已登记的子Agent不支持读取AgentScope状态：" + entry.agentId());
+                    throw TripExceptions.system("已登记的子Agent不支持读取AgentScope状态：" + entry.agentId());
                 }
                 // 直接读store而非getAgentState缓存，避免另一节点已恢复、当前节点仍看到旧ASKING。
                 if (nativeChild.getStateStore() == null) {
-                    throw SystemIntervalException.of("已登记的子Agent未提供状态存储：" + entry.agentId());
+                    throw TripExceptions.system("已登记的子Agent未提供状态存储：" + entry.agentId());
                 }
                 AgentState state = nativeChild.getStateStore()
                         .get(context.getUserId(), entry.sessionId(), "agent_state", AgentState.class)
-                        .orElseThrow(() -> SystemIntervalException.of("已登记的子会话状态不存在：" + entry.sessionId()));
+                        .orElseThrow(() -> TripExceptions.system("已登记的子会话状态不存在：" + entry.sessionId()));
                 List<ToolUseBlock> asking = pendingToolCalls(state);
                 if (!asking.isEmpty()) {
                     pending.add(new PendingApproval(entry, asking));

@@ -16,7 +16,10 @@ import com.fons.cloud.ai.trip.common.request.SearchPageRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
 import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.BsException;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import io.agentscope.core.agent.RuntimeContext;
@@ -89,7 +92,7 @@ public class ItinerarySearchTools implements BaseTool {
             ItinerarySearchResult<TransportCandidate> result = itinerarySearchApplicationService.searchFlights(
                     userId, travelOrderId, SEARCH_PROVIDER, request);
             return success("机票", result, StringUtils.isNotBlank(travelOrderId));
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             return businessFailure("search_flights", userId, e);
         } catch (CancellationException e) {
             throw e;
@@ -134,7 +137,7 @@ public class ItinerarySearchTools implements BaseTool {
             ItinerarySearchResult<TransportCandidate> result = itinerarySearchApplicationService.searchTrains(
                     userId, travelOrderId, SEARCH_PROVIDER, request);
             return success("火车票", result, StringUtils.isNotBlank(travelOrderId));
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             return businessFailure("search_trains", userId, e);
         } catch (CancellationException e) {
             throw e;
@@ -182,7 +185,7 @@ public class ItinerarySearchTools implements BaseTool {
             ItinerarySearchResult<HotelCandidate> result = itinerarySearchApplicationService.searchHotels(
                     userId, travelOrderId, SEARCH_PROVIDER, request);
             return success("酒店", result, StringUtils.isNotBlank(travelOrderId));
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             return businessFailure("search_hotels", userId, e);
         } catch (CancellationException e) {
             throw e;
@@ -228,7 +231,7 @@ public class ItinerarySearchTools implements BaseTool {
                     : "酒店房型报价查询完成，返回" + count + "个具体报价"
                     + (StringUtils.isNotBlank(travelOrderId) ? "并已保存，可继续规划。" : "。");
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             return businessFailure("search_hotel_rooms", userId, e);
         } catch (CancellationException e) {
             throw e;
@@ -306,12 +309,12 @@ public class ItinerarySearchTools implements BaseTool {
         return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
     }
 
-    private <T> R<T> businessFailure(String toolName, String userId, BusinessRuntimeException e) {
-        log.warn("[TOOL][{}] 搜索未完成，userId={}, code={}", toolName, userId, e.getCode());
+    private <T> R<T> businessFailure(String toolName, String userId, BsException e) {
+        log.warn("[TOOL][{}] 搜索未完成，userId={}, code={}", toolName, userId, e.getExceptionCode().getCode());
         TripAgentToolResultCode code = TripAgentToolResultCode.INTERNAL_ERROR;
-        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())) {
+        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getExceptionCode().getCode())) {
             code = TripAgentToolResultCode.INVALID_PARAM;
-        } else if (TripAgentToolResultCode.INVALID_STATE.getCode().equals(e.getCode())) {
+        } else if (TripAgentToolResultCode.INVALID_STATE.getCode().equals(e.getExceptionCode().getCode())) {
             code = TripAgentToolResultCode.INVALID_STATE;
         }
         return R.failed(code.getCode(), e.getMessage());
@@ -324,8 +327,8 @@ public class ItinerarySearchTools implements BaseTool {
         }
     }
 
-    private BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 
     @Override

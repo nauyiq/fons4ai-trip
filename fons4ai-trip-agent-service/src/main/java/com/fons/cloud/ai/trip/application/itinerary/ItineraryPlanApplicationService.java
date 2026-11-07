@@ -21,7 +21,8 @@ import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryCandidateRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import lombok.RequiredArgsConstructor;
@@ -160,7 +161,7 @@ public class ItineraryPlanApplicationService {
         boolean active = order.getStatus() == TravelOrderStatus.DRAFT
                 || order.getStatus() == TravelOrderStatus.SUBMITTED
                 || order.getStatus() == TravelOrderStatus.APPROVED;
-        Assert.isTrue(active, () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(),
+        Assert.isTrue(active, () -> TripExceptions.invalidRequest(
                 "差旅单的行程信息或状态已变化，请重新规划"));
     }
 
@@ -170,7 +171,7 @@ public class ItineraryPlanApplicationService {
         String message = "差旅单的行程信息或状态已变化，请重新规划";
         Assert.isTrue(order != null && source != null && StringUtils.isNotBlank(source.orderId())
                         && StringUtils.equals(source.orderId(), order.getOrderId()),
-                () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), message));
+                () -> TripExceptions.invalidRequest(message));
         // 日期按数据库中的标准日期文本比较，缺失或非法数据不能与历史方案匹配。
         boolean sameItinerary = StringUtils.isNoneBlank(source.origin(), source.destination(),
                 order.getDepartureCity(), order.getDestination(), order.getDepartureDate(), order.getReturnDate())
@@ -180,7 +181,7 @@ public class ItineraryPlanApplicationService {
                 && StringUtils.equals(source.departureDate().toString(), StringUtils.trimToNull(order.getDepartureDate()))
                 && StringUtils.equals(source.returnDate().toString(), StringUtils.trimToNull(order.getReturnDate()));
         Assert.isTrue(sameItinerary,
-                () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), message));
+                () -> TripExceptions.invalidRequest(message));
     }
 
 
@@ -198,7 +199,7 @@ public class ItineraryPlanApplicationService {
         Assert.isTrue(order.getStatus() == TravelOrderStatus.DRAFT
                         || order.getStatus() == TravelOrderStatus.SUBMITTED
                         || order.getStatus() == TravelOrderStatus.APPROVED,
-                () -> BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(),
+                () -> TripExceptions.invalidRequest(
                         "当前差旅单状态不支持行程规划"));
         Assert.isTrue(StringUtils.equals(origin, order.getDepartureCity())
                         && StringUtils.equals(destination, order.getDestination())
@@ -224,8 +225,8 @@ public class ItineraryPlanApplicationService {
         return order;
     }
 
-    private BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 
     /**

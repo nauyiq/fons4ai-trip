@@ -5,7 +5,8 @@ import cn.hutool.crypto.digest.DigestUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONException;
 import com.fons.cloud.ai.trip.common.dto.ItineraryRepairCycle;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -51,14 +52,14 @@ public class ItineraryRepairCycleRepository {
                             && StringUtils.isNotBlank(cycle.runId())
                             && cycle.status() != null && cycle.replanCount() >= 0
                             && cycle.reviewRetryCount() >= 0,
-                    () -> SystemIntervalException.of("行程修复状态数据不完整"));
+                    () -> TripExceptions.system("行程修复状态数据不完整"));
             return cycle;
         } catch (JSONException e) {
-            throw SystemIntervalException.of("行程修复状态JSON格式无效", e);
+            throw TripExceptions.system("行程修复状态JSON格式无效", e);
         } catch (RedisException e) {
             log.warn("[ItineraryRepairCycleRepository] 读取状态失败，userId={}, exceptionType={}",
                     userId, e.getClass().getSimpleName());
-            throw SystemIntervalException.of("行程修复状态读取失败", e);
+            throw TripExceptions.system("行程修复状态读取失败", e);
         }
     }
 
@@ -69,22 +70,22 @@ public class ItineraryRepairCycleRepository {
      */
     public void save(String userId, String orderId, String conversationId, ItineraryRepairCycle cycle) {
         requireScope(userId, orderId, conversationId);
-        Assert.notNull(cycle, () -> SystemIntervalException.of("行程修复状态不能为空"));
+        Assert.notNull(cycle, () -> TripExceptions.system("行程修复状态不能为空"));
         try {
             bucket(userId, orderId, conversationId).set(JSON.toJSONString(cycle));
         } catch (JSONException e) {
-            throw SystemIntervalException.of("行程修复状态序列化失败", e);
+            throw TripExceptions.system("行程修复状态序列化失败", e);
         } catch (RedisException e) {
             log.warn("[ItineraryRepairCycleRepository] 保存状态失败，userId={}, exceptionType={}",
                     userId, e.getClass().getSimpleName());
-            throw SystemIntervalException.of("行程修复状态保存失败", e);
+            throw TripExceptions.system("行程修复状态保存失败", e);
         }
     }
 
     /** 旧会话页面只读取当时的修复状态，不能用于新规划。 */
     public ItineraryRepairCycle findLegacy(String userId, String conversationId) {
         Assert.isTrue(StringUtils.isNoneBlank(userId, conversationId),
-                () -> SystemIntervalException.of("用户和会话标识不能为空"));
+                () -> TripExceptions.system("用户和会话标识不能为空"));
         try {
             String key = "trip:itinerary:repair-cycle:{" + DigestUtil.sha256Hex(JSON.toJSONBytes(
                     new TreeMap<>(Map.of("userId", userId.trim(), "conversationId", conversationId.trim())))) + "}";
@@ -96,17 +97,17 @@ public class ItineraryRepairCycleRepository {
             Assert.isTrue(cycle != null && cycle.scope() != null && StringUtils.isNotBlank(cycle.planId())
                             && StringUtils.isNotBlank(cycle.runId()) && cycle.status() != null
                             && cycle.replanCount() >= 0 && cycle.reviewRetryCount() >= 0,
-                    () -> SystemIntervalException.of("历史行程修复状态数据不完整"));
+                    () -> TripExceptions.system("历史行程修复状态数据不完整"));
             return cycle;
         } catch (JSONException | RedisException e) {
-            throw SystemIntervalException.of("读取历史行程修复状态失败", e);
+            throw TripExceptions.system("读取历史行程修复状态失败", e);
         }
     }
 
     /** 按用户、差旅单和会话隔离运行中的规划数据。 */
     private void requireScope(String userId, String orderId, String conversationId) {
         Assert.isTrue(StringUtils.isNoneBlank(userId, orderId, conversationId),
-                () -> SystemIntervalException.of("用户、差旅单和会话标识不能为空"));
+                () -> TripExceptions.system("用户、差旅单和会话标识不能为空"));
     }
 
     private RBucket<String> bucket(String userId, String orderId, String conversationId) {

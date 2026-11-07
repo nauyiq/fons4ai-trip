@@ -17,9 +17,11 @@ import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySearchClient;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryCandidateRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -61,7 +63,7 @@ public class ItinerarySearchApplicationService {
         Map<ItinerarySearchProvider, ItinerarySearchClient> strategies = new EnumMap<>(ItinerarySearchProvider.class);
         for (ItinerarySearchClient client : searchClients) {
             Assert.isTrue(client.getProvider() != null && !strategies.containsKey(client.getProvider()),
-                    () -> SystemIntervalException.of("行程搜索客户端供应商为空或重复注册"));
+                    () -> TripExceptions.system("行程搜索客户端供应商为空或重复注册"));
             strategies.put(client.getProvider(), client);
         }
         this.clients = Map.copyOf(strategies);
@@ -78,7 +80,7 @@ public class ItinerarySearchApplicationService {
      * @param provider 服务端选择的搜索供应商，必须存在对应客户端策略
      * @param request Trip机票搜索条件，翻页时保留原条件，由客户端校验并转换供应商参数
      * @return 本次搜索结果，候选为当前页的多个机票报价，不是累计候选池
-     * @throws BusinessRuntimeException 搜索参数或候选归属无效时抛出
+     * @throws ValidationException 搜索参数或候选归属无效时抛出
      * @throws SystemIntervalException 客户端未配置、搜索结果协议异常或候选存储失败时抛出
      */
     public ItinerarySearchResult<TransportCandidate> searchFlights(String userId, String travelOrderId,
@@ -110,7 +112,7 @@ public class ItinerarySearchApplicationService {
      * @param provider 服务端选择的搜索供应商，必须存在对应客户端策略
      * @param request Trip火车票搜索条件，翻页时保留原条件和客户端返回的续查凭据
      * @return 本次搜索结果，候选为当前页的多个车次席别报价；候选数可能超过车次数
-     * @throws BusinessRuntimeException 搜索参数或候选归属无效时抛出
+     * @throws ValidationException 搜索参数或候选归属无效时抛出
      * @throws SystemIntervalException 客户端未配置、搜索结果协议异常或候选存储失败时抛出
      */
     public ItinerarySearchResult<TransportCandidate> searchTrains(String userId, String travelOrderId,
@@ -143,7 +145,7 @@ public class ItinerarySearchApplicationService {
      * @param request Trip酒店搜索条件，成人数为空时按2人处理，儿童年龄为空时表示没有儿童；
      *                翻页时保留原条件和客户端返回的续查凭据
      * @return 本次搜索结果，候选为当前页的多个酒店报价，不代表累计候选列表、可预订报价或完整住宿总价
-     * @throws BusinessRuntimeException 搜索参数、入住条件或候选归属无效时抛出
+     * @throws ValidationException 搜索参数、入住条件或候选归属无效时抛出
      * @throws SystemIntervalException 客户端未配置、搜索结果协议异常或候选存储失败时抛出
      */
     public ItinerarySearchResult<HotelCandidate> searchHotels(String userId, String travelOrderId,
@@ -176,7 +178,7 @@ public class ItinerarySearchApplicationService {
      * @param provider 服务端选择的搜索供应商
      * @param request Trip酒店房型报价条件，酒店标识来自酒店列表候选的source.itemId
      * @return 本次具体房型报价结果，不包含累计候选池
-     * @throws BusinessRuntimeException 搜索参数、入住条件或候选归属无效时抛出
+     * @throws ValidationException 搜索参数、入住条件或候选归属无效时抛出
      * @throws SystemIntervalException 客户端未配置、响应协议异常或候选保存失败时抛出
      */
     public ItinerarySearchResult<HotelCandidate> searchHotelRooms(String userId, String travelOrderId,
@@ -233,14 +235,14 @@ public class ItinerarySearchApplicationService {
         TravelOrderStatus status = order.getStatus();
         Assert.isTrue(status == TravelOrderStatus.DRAFT || status == TravelOrderStatus.SUBMITTED
                         || status == TravelOrderStatus.APPROVED,
-                () -> BusinessRuntimeException.of(TripAgentToolResultCode.INVALID_STATE.getCode(),
+                () -> TripExceptions.business(TripAgentToolResultCode.INVALID_STATE.getCode(),
                         "当前差旅单状态不支持行程规划"));
         Assert.isTrue(StringUtils.isNoneBlank(order.getDepartureCity(), order.getDestination(),
                         order.getDepartureDate(), order.getReturnDate()),
-                () -> BusinessRuntimeException.of(TripAgentToolResultCode.INVALID_STATE.getCode(),
+                () -> TripExceptions.business(TripAgentToolResultCode.INVALID_STATE.getCode(),
                         "差旅单缺少城市或日期，无法进行行程规划"));
         Assert.isTrue(!parseOrderDate(order.getReturnDate()).isBefore(parseOrderDate(order.getDepartureDate())),
-                () -> BusinessRuntimeException.of(TripAgentToolResultCode.INVALID_STATE.getCode(),
+                () -> TripExceptions.business(TripAgentToolResultCode.INVALID_STATE.getCode(),
                         "差旅单返回日期早于出发日期，无法进行行程规划"));
         return order;
     }
@@ -254,7 +256,7 @@ public class ItinerarySearchApplicationService {
         try {
             return LocalDate.parse(StringUtils.trim(date));
         } catch (DateTimeParseException e) {
-            throw BusinessRuntimeException.of(TripAgentToolResultCode.INVALID_STATE.getCode(),
+            throw TripExceptions.business(TripAgentToolResultCode.INVALID_STATE.getCode(),
                     "差旅单日期无效，无法进行行程规划");
         }
     }
@@ -264,13 +266,13 @@ public class ItinerarySearchApplicationService {
      *
      * @param provider 搜索供应商，不能为空
      * @return 对应的搜索客户端策略
-     * @throws BusinessRuntimeException 供应商为空时抛出
+     * @throws ValidationException 供应商为空时抛出
      * @throws SystemIntervalException 未注册对应客户端时抛出
      */
     private ItinerarySearchClient client(ItinerarySearchProvider provider) {
         Assert.notNull(provider, () -> parameterError("行程搜索供应商不能为空"));
         ItinerarySearchClient client = clients.get(provider);
-        Assert.notNull(client, () -> SystemIntervalException.of("当前行程搜索供应商未配置客户端"));
+        Assert.notNull(client, () -> TripExceptions.system("当前行程搜索供应商未配置客户端"));
         return client;
     }
 
@@ -283,11 +285,11 @@ public class ItinerarySearchApplicationService {
      */
     private void validateSearchResult(ItinerarySearchProvider provider, ItinerarySearchResult<?> result) {
         Assert.isTrue(result != null && result.provider() == provider,
-                () -> SystemIntervalException.of("搜索客户端返回的供应商与当前策略不一致"));
+                () -> TripExceptions.system("搜索客户端返回的供应商与当前策略不一致"));
         Assert.isTrue(result.searchedAt() != null && result.candidates() != null && result.pagination() != null
                         && result.warnings() != null && result.warnings().stream().allMatch(item -> item != null)
                         && result.discardedItemCount() >= 0,
-                () -> SystemIntervalException.of("标准搜索结果缺少必要信息，无法保存候选"));
+                () -> TripExceptions.system("标准搜索结果缺少必要信息，无法保存候选"));
     }
 
     /**
@@ -296,7 +298,7 @@ public class ItinerarySearchApplicationService {
      * @param message 具体参数错误说明
      * @return 待抛出的业务异常，本方法不直接抛出
      */
-    private BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 }

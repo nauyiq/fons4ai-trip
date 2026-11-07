@@ -13,8 +13,8 @@ import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryReviewRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.result.ResultCode;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -128,7 +128,7 @@ public class ItineraryReviewApplicationService {
         }
     }
 
-    private BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 }

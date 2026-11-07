@@ -12,7 +12,8 @@ import com.fons.cloud.ai.trip.common.vo.ConversationInfo;
 import com.fons.cloud.ai.trip.common.vo.MessageInfo;
 import com.fons.cloud.ai.trip.common.vo.ConversationExecutionInfo;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.BsException;
 import com.fons.cloud.common.result.PageResult;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
@@ -49,10 +50,10 @@ public class ConversationController {
     public Flux<String> stream(@Valid @RequestBody ConversationStreamRequest request) {
         String userId = saTokenAuthTemplate.getCurrentLoginIdAsString();
         if (StringUtils.isBlank(userId)) {
-            return Flux.error(BusinessRuntimeException.of(TripAgentResultCode.LOGIN_EXPIRED));
+            return Flux.error(TripExceptions.authentication(TripAgentResultCode.LOGIN_EXPIRED));
         }
         if (CollectionUtils.isEmpty(request.getMessages())) {
-            return Flux.error(BusinessRuntimeException.of(TripAgentResultCode.CHAT_MESSAGE_IS_EMPTY));
+            return Flux.error(TripExceptions.validation(TripAgentResultCode.CHAT_MESSAGE_IS_EMPTY));
         }
         request.setUserId(userId);
         return conversationApplicationService.stream(request);
@@ -91,11 +92,11 @@ public class ConversationController {
     @PostMapping(value = "/replay", produces = "text/event-stream;charset=UTF-8")
     public Flux<String> replay(@Valid @RequestBody ConversationReplayRequest request) {
         if (request == null) {
-            return Flux.error(BusinessRuntimeException.of(ResultCode.PARAM_UNDEFINED));
+            return Flux.error(BsException.of(ResultCode.PARAM_UNDEFINED));
         }
         String userId = saTokenAuthTemplate.getCurrentLoginIdAsString();
         if (StringUtils.isBlank(userId)) {
-            return Flux.error(BusinessRuntimeException.of(TripAgentResultCode.LOGIN_EXPIRED));
+            return Flux.error(TripExceptions.authentication(TripAgentResultCode.LOGIN_EXPIRED));
         }
         request.setUserId(userId);
         return conversationApplicationService.replay(request);

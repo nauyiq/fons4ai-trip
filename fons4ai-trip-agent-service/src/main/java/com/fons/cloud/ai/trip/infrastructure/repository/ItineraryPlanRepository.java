@@ -5,7 +5,8 @@ import cn.hutool.crypto.digest.DigestUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONException;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -50,11 +51,11 @@ public class ItineraryPlanRepository {
         try {
             planMap(userId, orderId, conversationId).put(result.getPlanId(), JSON.toJSONString(result));
         } catch (JSONException e) {
-            throw SystemIntervalException.of("行程规划结果序列化失败", e);
+            throw TripExceptions.system("行程规划结果序列化失败", e);
         } catch (RedisException e) {
             log.warn("[ItineraryPlanRepository] 保存规划结果失败，planId={}, exceptionType={}",
                     result.getPlanId(), e.getClass().getSimpleName());
-            throw SystemIntervalException.of("行程规划结果保存失败", e);
+            throw TripExceptions.system("行程规划结果保存失败", e);
         }
     }
 
@@ -81,11 +82,11 @@ public class ItineraryPlanRepository {
                     () -> protocolError("行程规划结果与planId不一致"));
             return result;
         } catch (JSONException e) {
-            throw SystemIntervalException.of("行程规划结果JSON格式无效", e);
+            throw TripExceptions.system("行程规划结果JSON格式无效", e);
         } catch (RedisException e) {
             log.warn("[ItineraryPlanRepository] 读取规划结果失败，planId={}, exceptionType={}",
                     planId, e.getClass().getSimpleName());
-            throw SystemIntervalException.of("行程规划结果读取失败", e);
+            throw TripExceptions.system("行程规划结果读取失败", e);
         }
     }
 
@@ -105,7 +106,7 @@ public class ItineraryPlanRepository {
                     () -> protocolError("行程规划结果与planId不一致"));
             return result;
         } catch (JSONException | RedisException e) {
-            throw SystemIntervalException.of("读取历史行程规划失败", e);
+            throw TripExceptions.system("读取历史行程规划失败", e);
         }
     }
 
@@ -117,10 +118,10 @@ public class ItineraryPlanRepository {
     /** 按用户、差旅单和会话隔离运行中的规划数据。 */
     private void requireScope(String userId, String orderId, String conversationId) {
         Assert.isTrue(StringUtils.isNoneBlank(userId, orderId, conversationId),
-                () -> SystemIntervalException.of("用户、差旅单和会话标识不能为空"));
+                () -> TripExceptions.system("用户、差旅单和会话标识不能为空"));
     }
 
     private SystemIntervalException protocolError(String message) {
-        return SystemIntervalException.of(message);
+        return TripExceptions.system(message);
     }
 }

@@ -2,8 +2,7 @@ package com.fons.cloud.ai.trip.common.dto;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.BookingType;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.result.ResultCode;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -26,15 +25,15 @@ public record ItineraryCandidateGroups(ItineraryCandidateScope outboundFlights,
                                        ItineraryCandidateScope hotels) {
 
     public ItineraryCandidateGroups {
-        Assert.isTrue(outboundFlights != null && outboundTrains != null && inboundFlights != null && inboundTrains != null && hotels != null, () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "规划候选分组不能为空"));
+        Assert.isTrue(outboundFlights != null && outboundTrains != null && inboundFlights != null && inboundTrains != null && hotels != null, () -> TripExceptions.invalidParameter("规划候选分组不能为空"));
         Assert.isTrue(outboundFlights.type() == BookingType.FLIGHT && outboundTrains.type() == BookingType.TRAIN
                         && inboundFlights.type() == BookingType.FLIGHT && inboundTrains.type() == BookingType.TRAIN
                         && hotels.type() == BookingType.HOTEL,
-                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "规划候选分组类型不正确"));
+                () -> TripExceptions.invalidParameter("规划候选分组类型不正确"));
         Assert.isTrue(List.of(outboundTrains, inboundFlights, inboundTrains, hotels).stream()
                         .allMatch(scope -> outboundFlights.userId().equals(scope.userId())
                                 && outboundFlights.orderId().equals(scope.orderId())),
-                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "规划候选分组必须属于相同用户和差旅单"));
+                () -> TripExceptions.invalidParameter("规划候选分组必须属于相同用户和差旅单"));
     }
 
     /**

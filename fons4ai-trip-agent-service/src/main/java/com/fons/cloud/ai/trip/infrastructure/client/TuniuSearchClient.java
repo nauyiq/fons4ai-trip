@@ -23,9 +23,9 @@ import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySearchClient;
 import com.fons.cloud.ai.trip.infrastructure.client.model.tuniu.*;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.TripMcpConfigProperties;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.TripMcpConfigProperties.TuniuMcpConfig;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -76,11 +76,11 @@ public class TuniuSearchClient implements ItinerarySearchClient {
     /** 固化企业服务配置，不在启动阶段访问供应商，凭据不进入Agent上下文。 */
     public TuniuSearchClient(TripMcpConfigProperties properties) {
         TuniuMcpConfig config = properties.getTuniu();
-        Assert.notNull(config, () -> SystemIntervalException.of("途牛MCP配置不能为空"));
+        Assert.notNull(config, () -> TripExceptions.system("途牛MCP配置不能为空"));
         this.apiKey = StringUtils.trimToEmpty(config.getApiKey());
         Assert.isTrue(apiKey.chars().noneMatch(c -> Character.isWhitespace(c)
                         || Character.isSpaceChar(c) || Character.isISOControl(c)),
-                () -> SystemIntervalException.of("企业途牛API Key不能包含内部空白或控制字符"));
+                () -> TripExceptions.system("企业途牛API Key不能包含内部空白或控制字符"));
         this.flightService = createService(config.getFlightEndpoint(), config.getFlightSearchTool(), "机票", "successCode", "data");
         this.trainService = createService(config.getTrainEndpoint(), config.getTrainSearchTool(), "火车票", "successCode", "data");
         this.hotelService = createService(config.getHotelEndpoint(), config.getHotelSearchTool(), "酒店", "success", "hotels");
@@ -170,7 +170,7 @@ public class TuniuSearchClient implements ItinerarySearchClient {
         JSONObject arguments = pageNumber == FIRST_PAGE ? criteria : toArguments(new TuniuSearchPageRequest(queryId, pageNumber));
         TuniuHotelSearchResponse response = search(hotelService, arguments, TuniuHotelSearchResponse.class);
         Assert.isTrue(response.currentPageNum() == null || response.currentPageNum() == pageNumber,
-                () -> SystemIntervalException.of("途牛酒店返回页码与请求不一致"));
+                () -> TripExceptions.external("途牛酒店返回页码与请求不一致"));
         return converter.convertHotels(response, request, adultCount, toPagination(pageNumber, response.totalPageNum(),
                 StringUtils.defaultIfBlank(response.queryId(), queryId), BookingType.HOTEL, criteriaId));
     }
@@ -206,13 +206,13 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                 TuniuHotelDetailResponse.class);
         Assert.isTrue(response.hotelId() != null && response.hotelId() == hotelId
                         && StringUtils.isNotBlank(response.hotelName()),
-                () -> SystemIntervalException.of("途牛酒店详情返回的酒店标识或名称无效"));
+                () -> TripExceptions.external("途牛酒店详情返回的酒店标识或名称无效"));
         return converter.convertHotelRooms(response, request, adultCount,
                 new SearchPagination(FIRST_PAGE, FIRST_PAGE, false, null));
     }
 
     private <T> T search(SearchService service, JSONObject arguments, Class<T> responseType) {
-        Assert.notBlank(apiKey, () -> SystemIntervalException.of("企业途牛搜索服务未配置凭据，请联系管理员"));
+        Assert.notBlank(apiKey, () -> TripExceptions.system("企业途牛搜索服务未配置凭据，请联系管理员"));
         McpSchema.CallToolResult result;
         try {
             URI endpoint = service.endpoint();
@@ -226,27 +226,29 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                 client.initialize();
                 result = client.callTool(new McpSchema.CallToolRequest(service.toolName(), arguments));
             }
+        } catch (java.util.concurrent.CancellationException e) {
+            throw e;
         } catch (RuntimeException e) {
             // 不记录凭据、远端正文及异常堆栈，避免供应商回显认证信息。
             log.warn("[TuniuSearchClient] 途牛{}MCP调用失败，exceptionType={}", service.label(), e.getClass().getSimpleName());
-            throw SystemIntervalException.of("途牛" + service.label() + "搜索服务调用失败，请联系管理员检查服务配置或状态");
+            throw TripExceptions.external("途牛" + service.label() + "搜索服务调用失败，请联系管理员检查服务配置或状态");
         }
         Assert.isTrue(result != null && !Boolean.TRUE.equals(result.isError()),
-                () -> SystemIntervalException.of("途牛" + service.label() + "搜索工具执行失败"));
+                () -> TripExceptions.external("途牛" + service.label() + "搜索工具执行失败"));
         JSONObject payload = extractPayload(result, service);
         // 先判定供应商业务状态，再解析具体列表；错误正文可能与正常列表结构不同。
         Assert.isTrue(service.successField() == null || Boolean.TRUE.equals(payload.get(service.successField())),
-                () -> SystemIntervalException.of("途牛" + service.label() + "搜索未返回成功状态"));
+                () -> TripExceptions.external("途牛" + service.label() + "搜索未返回成功状态"));
         Assert.isTrue(payload.get(service.itemsField()) instanceof List<?>,
-                () -> SystemIntervalException.of("途牛" + service.label() + "搜索响应缺失结果数组"));
+                () -> TripExceptions.external("途牛" + service.label() + "搜索响应缺失结果数组"));
         Assert.isTrue(((List<?>) payload.get(service.itemsField())).stream().allMatch(item -> item instanceof JSONObject),
-                () -> SystemIntervalException.of("途牛" + service.label() + "搜索结果条目格式无效"));
+                () -> TripExceptions.external("途牛" + service.label() + "搜索结果条目格式无效"));
         try {
             T response = payload.toJavaObject(responseType);
             log.info("[TuniuSearchClient] 途牛{}搜索完成，count={}", service.label(), ((List<?>) payload.get(service.itemsField())).size());
             return response;
         } catch (JSONException e) {
-            throw SystemIntervalException.of("途牛" + service.label() + "搜索响应格式无效");
+            throw TripExceptions.external("途牛" + service.label() + "搜索响应格式无效");
         }
     }
 
@@ -266,13 +268,13 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                         continue;
                     }
                     if (candidate != null && candidate.containsKey(service.itemsField())) {
-                        Assert.isTrue(payload == null, () -> SystemIntervalException.of("途牛搜索返回多个业务结果，无法确定响应"));
+                        Assert.isTrue(payload == null, () -> TripExceptions.external("途牛搜索返回多个业务结果，无法确定响应"));
                         payload = candidate;
                     }
                 }
             }
         }
-        Assert.notNull(payload, () -> SystemIntervalException.of("途牛" + service.label() + "搜索缺失JSON业务结果"));
+        Assert.notNull(payload, () -> TripExceptions.external("途牛" + service.label() + "搜索缺失JSON业务结果"));
         return payload;
     }
 
@@ -288,13 +290,13 @@ public class TuniuSearchClient implements ItinerarySearchClient {
                 } else if (wrappedResult instanceof JSONObject resultObject) {
                     payload = resultObject;
                 } else {
-                    throw SystemIntervalException.of("途牛" + service.label() + "搜索结果包装不是有效JSON对象");
+                    throw TripExceptions.external("途牛" + service.label() + "搜索结果包装不是有效JSON对象");
                 }
             }
-            Assert.notNull(payload, () -> SystemIntervalException.of("途牛" + service.label() + "搜索返回空业务结果"));
+            Assert.notNull(payload, () -> TripExceptions.external("途牛" + service.label() + "搜索返回空业务结果"));
             return payload;
         } catch (JSONException e) {
-            throw SystemIntervalException.of("途牛" + service.label() + "搜索响应不是有效JSON对象");
+            throw TripExceptions.external("途牛" + service.label() + "搜索响应不是有效JSON对象");
         }
     }
 
@@ -377,10 +379,10 @@ public class TuniuSearchClient implements ItinerarySearchClient {
 
     private SearchPagination toPagination(int pageNumber, Integer totalPages, String queryId, BookingType type, String criteriaId) {
         Assert.isTrue(totalPages == null || totalPages >= 0 && (totalPages == 0 && pageNumber == FIRST_PAGE || totalPages >= pageNumber),
-                () -> SystemIntervalException.of("途牛搜索返回无效总页数"));
+                () -> TripExceptions.external("途牛搜索返回无效总页数"));
         Boolean hasNext = totalPages == null ? null : pageNumber < totalPages;
         Assert.isTrue(type == BookingType.FLIGHT || !Boolean.TRUE.equals(hasNext) || StringUtils.isNotBlank(queryId),
-                () -> SystemIntervalException.of("途牛搜索缺失后续页的查询标识"));
+                () -> TripExceptions.external("途牛搜索缺失后续页的查询标识"));
         String token = StringUtils.isBlank(queryId) ? null : Base64.getUrlEncoder().withoutPadding().encodeToString(
                 JSON.toJSONBytes(new TuniuSearchCursor(getProvider(), type, queryId.trim(), criteriaId)));
         return new SearchPagination(pageNumber, totalPages, hasNext, token);
@@ -391,28 +393,28 @@ public class TuniuSearchClient implements ItinerarySearchClient {
     }
 
     private SearchService createService(String address, String toolName, String label, String successField, String itemsField) {
-        Assert.notBlank(address, () -> SystemIntervalException.of("途牛" + label + "服务地址不能为空"));
-        Assert.notBlank(toolName, () -> SystemIntervalException.of("途牛" + label + "搜索工具名不能为空"));
+        Assert.notBlank(address, () -> TripExceptions.system("途牛" + label + "服务地址不能为空"));
+        Assert.notBlank(toolName, () -> TripExceptions.system("途牛" + label + "搜索工具名不能为空"));
         URI endpoint;
         try {
             endpoint = URI.create(address.trim());
         } catch (IllegalArgumentException e) {
-            throw SystemIntervalException.of("途牛" + label + "服务地址格式无效");
+            throw TripExceptions.system("途牛" + label + "服务地址格式无效");
         }
         Assert.isTrue(("https".equalsIgnoreCase(endpoint.getScheme()) || "http".equalsIgnoreCase(endpoint.getScheme()))
                         && endpoint.getHost() != null && StringUtils.isNotBlank(endpoint.getRawPath())
                         && endpoint.getRawUserInfo() == null && endpoint.getRawQuery() == null && endpoint.getRawFragment() == null,
-                () -> SystemIntervalException.of("途牛" + label + "服务地址必须为包含端点路径的HTTP或HTTPS地址，不能包含凭据、查询参数或片段"));
+                () -> TripExceptions.system("途牛" + label + "服务地址必须为包含端点路径的HTTP或HTTPS地址，不能包含凭据、查询参数或片段"));
         return new SearchService(endpoint, toolName.trim(), label, successField, itemsField);
     }
 
     private Duration toTimeout(Integer seconds, String label) {
-        Assert.isTrue(seconds != null && seconds > 0, () -> SystemIntervalException.of("途牛MCP" + label + "超时必须大于0"));
+        Assert.isTrue(seconds != null && seconds > 0, () -> TripExceptions.system("途牛MCP" + label + "超时必须大于0"));
         return Duration.ofSeconds(seconds);
     }
 
-    private BusinessRuntimeException parameterError(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException parameterError(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 
     /** 只保存服务协议元数据，不含搜索会话状态。 */

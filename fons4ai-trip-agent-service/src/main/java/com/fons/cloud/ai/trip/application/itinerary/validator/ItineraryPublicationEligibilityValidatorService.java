@@ -17,9 +17,10 @@ import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryRepairCycleRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryReviewRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -42,7 +43,7 @@ public class ItineraryPublicationEligibilityValidatorService {
     /**
      * 读取可发布的当前方案及审核报告。警告但可推荐的方案允许展示，警告由发布内容呈现。
      *
-     * @throws BusinessRuntimeException 当前方案或审核状态不允许发布时抛出
+     * @throws ValidationException 当前方案或审核状态不允许发布时抛出
      * @throws SystemIntervalException 已保存的数据彼此矛盾时抛出
      */
     public ItineraryPublicationSource requirePublishable(String userId, String orderId, String conversationId, String planId) {
@@ -93,7 +94,7 @@ public class ItineraryPublicationEligibilityValidatorService {
                 () -> invalidState("当前方案尚未完成审核或已被新方案替代"));
         Assert.isTrue(plan.getUserRequest() != null
                         && cycle.scope().equals(ItineraryScope.from(plan)),
-                () -> SystemIntervalException.of("当前规划与修复状态的行程范围不一致"));
+                () -> TripExceptions.system("当前规划与修复状态的行程范围不一致"));
 
         // 3. 只接受当前方案的完整、最终且明确允许推进的审核报告
         Assert.isTrue(review != null
@@ -113,15 +114,15 @@ public class ItineraryPublicationEligibilityValidatorService {
                 .findFirst().orElse(null);
         Assert.isTrue(recommended != null && proposalReview != null
                         && proposalReview.eligibleForRecommendation(),
-                () -> SystemIntervalException.of("审核推荐方案与已保存规划或方案审核结论不一致"));
+                () -> TripExceptions.system("审核推荐方案与已保存规划或方案审核结论不一致"));
         return new ItineraryPublicationSource(plan, review, recommended);
     }
 
-    private BusinessRuntimeException invalidRequest(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException invalidRequest(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 
-    private BusinessRuntimeException invalidState(String message) {
-        return BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), message);
+    private ValidationException invalidState(String message) {
+        return TripExceptions.invalidRequest(message);
     }
 }

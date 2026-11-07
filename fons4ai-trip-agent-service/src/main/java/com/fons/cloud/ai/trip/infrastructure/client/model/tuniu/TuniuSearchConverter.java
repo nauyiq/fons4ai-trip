@@ -16,7 +16,7 @@ import com.fons.cloud.ai.trip.common.request.HotelSearchRequest;
 import com.fons.cloud.ai.trip.common.request.HotelRoomSearchRequest;
 import com.fons.cloud.ai.trip.common.request.TrainSearchRequest;
 import com.fons.cloud.ai.trip.common.response.ItinerarySearchResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
@@ -393,9 +393,9 @@ public final class TuniuSearchConverter {
     private <T> ItinerarySearchResult<T> result(List<T> candidates, SearchPagination pagination,
                                                int originalCount, int discarded, Set<String> warnings) {
         Assert.isTrue(originalCount == 0 || !candidates.isEmpty(),
-                () -> SystemIntervalException.of("途牛搜索结果全部缺少必要身份字段，无法生成标准候选"));
+                () -> TripExceptions.external("途牛搜索结果全部缺少必要身份字段，无法生成标准候选"));
         Assert.isTrue(pagination.totalPages() == null || pagination.totalPages() != 0 || originalCount == 0,
-                () -> SystemIntervalException.of("途牛搜索结果与总页数不一致"));
+                () -> TripExceptions.external("途牛搜索结果与总页数不一致"));
         if (discarded > 0) {
             warnings.add("部分搜索条目缺少必要身份字段，已舍弃，请结合舍弃数量判断结果完整性");
         }

@@ -9,7 +9,7 @@ import com.fons.cloud.ai.trip.agent.pipeline.AgentExecutePipeline;
 import com.fons.cloud.ai.trip.common.vo.MessageInfo;
 import com.fons.cloud.ai.trip.common.constants.ChatMessageHitlStatus;
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
 import com.fons.cloud.reactor.api.ReactiveTaskRun;
 import com.fons.cloud.reactor.model.ReactiveTaskState;
@@ -76,7 +76,7 @@ public class ChatStreamOutputAdapter {
                                 return unresolvedEvent(run.runId(), run.state(), conversationId, messages);
                             }
                             if (run.state() != ReactiveTaskState.COMPLETED) {
-                                throw SystemIntervalException.of("Pipeline尚未完成，不能发布正式审批");
+                                throw TripExceptions.system("Pipeline尚未完成，不能发布正式审批");
                             }
                             return completedEvent(outcome.get(), conversationId, messages);
                         }).onErrorResume(error -> {
@@ -133,7 +133,7 @@ public class ChatStreamOutputAdapter {
             if (finalizedMessages.size() != interactions.size() || finalizedMessages.isEmpty()
                     || finalizedMessages.stream().anyMatch(message -> !ChatMessageHitlStatus.PENDING.getCode()
                     .equals(message.getHitlStatus()))) {
-                throw SystemIntervalException.of("未取得完整且就绪的持久化审批消息");
+                throw TripExceptions.system("未取得完整且就绪的持久化审批消息");
             }
             MessageInfo first = finalizedMessages.getFirst();
             data.put("pauseId", first.getPauseId());

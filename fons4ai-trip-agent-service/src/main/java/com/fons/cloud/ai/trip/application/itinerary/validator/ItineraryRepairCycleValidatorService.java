@@ -9,9 +9,9 @@ import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryRepairCycleRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -113,7 +113,7 @@ public class ItineraryRepairCycleValidatorService {
         if (cycle == null) {
             // 兼容启用修复状态前已保存的规划，按首次规划承接其审核。
             Assert.isTrue(planningResult.getUserRequest() != null,
-                    () -> SystemIntervalException.of("旧规划缺少行程范围，无法建立修复状态"));
+                    () -> TripExceptions.system("旧规划缺少行程范围，无法建立修复状态"));
             cycle = new ItineraryRepairCycle(ItineraryScope.from(planningResult),
                     planningResult.getPlanId(), runId, 0, 0, ItineraryRepairStatus.AWAITING_REVIEW);
         }
@@ -155,10 +155,10 @@ public class ItineraryRepairCycleValidatorService {
 
     private void requireRunId(String runId) {
         Assert.isTrue(StringUtils.isNotBlank(runId),
-                () -> SystemIntervalException.of("运行时上下文缺少可信runId，无法限制规划修复次数"));
+                () -> TripExceptions.system("运行时上下文缺少可信runId，无法限制规划修复次数"));
     }
 
-    private BusinessRuntimeException invalidState(String message) {
-        return BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), message);
+    private ValidationException invalidState(String message) {
+        return TripExceptions.invalidRequest(message);
     }
 }

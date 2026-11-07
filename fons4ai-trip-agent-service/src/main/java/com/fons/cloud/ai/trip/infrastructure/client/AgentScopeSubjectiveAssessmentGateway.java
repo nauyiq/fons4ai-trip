@@ -12,7 +12,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
 import com.fons.cloud.ai.trip.infrastructure.client.api.ItinerarySubjectiveAssessmentGateway;
 import com.fons.cloud.ai.trip.infrastructure.agent.prompt.PromptLoader;
 import com.fons.cloud.ai.trip.infrastructure.util.ExtractUtils;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
@@ -49,12 +49,12 @@ public class AgentScopeSubjectiveAssessmentGateway implements ItinerarySubjectiv
                                                 ItineraryReviewContext context) {
         // 1. 根据主观审核维度选择对应的系统提示词
         if (dimension == null) {
-            throw SystemIntervalException.of("主观审核维度不能为空");
+            throw TripExceptions.system("主观审核维度不能为空");
         }
         String systemPrompt = switch (dimension) {
             case EXPERIENCE_AND_PREFERENCE -> experiencePrompt;
             case RESILIENCE -> resiliencePrompt;
-            default -> throw SystemIntervalException.of("不支持的主观审核维度：" + dimension);
+            default -> throw TripExceptions.system("不支持的主观审核维度：" + dimension);
         };
         // 2. 组装规划与事实输入，避免重复发送方案的完整 JSON
         String input = JSON.toJSONString(new AssessmentInput(planningResult, modelFacts(context.facts()),
@@ -68,13 +68,13 @@ public class AgentScopeSubjectiveAssessmentGateway implements ItinerarySubjectiv
         List<ChatResponse> responses = model.stream(messages, null, null).collectList().block();
         String output = ExtractUtils.extractText(responses);
         if (StringUtils.isBlank(output)) {
-            throw SystemIntervalException.of("主观审核模型未返回内容");
+            throw TripExceptions.external("主观审核模型未返回内容");
         }
         // 4. 解析结构化发现，交由应用层审核器继续校验事实与证据
         try {
             return JSON.parseObject(output.trim(), ItinerarySubjectiveAssessment.class);
         } catch (JSONException e) {
-            throw SystemIntervalException.of("主观审核模型返回格式无效", e);
+            throw TripExceptions.external("主观审核模型返回格式无效", e);
         }
     }
 

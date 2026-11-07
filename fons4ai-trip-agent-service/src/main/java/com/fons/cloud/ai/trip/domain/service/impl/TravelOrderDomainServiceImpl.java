@@ -11,7 +11,7 @@ import com.fons.cloud.ai.trip.domain.entity.TravelOrder;
 import com.fons.cloud.ai.trip.domain.mapper.ApprovalRecordMapper;
 import com.fons.cloud.ai.trip.domain.mapper.TravelOrderMapper;
 import com.fons.cloud.ai.trip.domain.service.TravelOrderDomainService;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -114,7 +114,7 @@ public class TravelOrderDomainServiceImpl extends ServiceImpl<TravelOrderMapper,
                 || !StringUtils.equals(current.getDestination(), order.getDestination())
                 || !StringUtils.equals(current.getDepartureDate(), order.getDepartureDate())
                 || !StringUtils.equals(current.getReturnDate(), order.getReturnDate())) {
-            throw SystemIntervalException.of("差旅单已发生变化，请重新查询后取消");
+            throw TripExceptions.system("差旅单已发生变化，请重新查询后取消");
         }
         order = current;
         order.cancel();
@@ -142,7 +142,7 @@ public class TravelOrderDomainServiceImpl extends ServiceImpl<TravelOrderMapper,
         if (record != null && record.getStatus() != ApprovalStatus.CANCELLED) {
             record.cancel(reason);
             if (approvalRecordMapper.updateById(record) <= 0) {
-                throw SystemIntervalException.of("撤销关联审批失败");
+                throw TripExceptions.system("撤销关联审批失败");
             }
             approvalCancelled = true;
             cancelledApprovalId = record.getProcessInstanceId();

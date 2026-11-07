@@ -7,9 +7,8 @@ import com.fons.cloud.ai.trip.domain.service.UserApiKeyDomainService;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.BusinessProviderConfigProperties;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.BusinessProviderConfigProperties.ProviderInfo;
 import com.fons.cloud.ai.trip.infrastructure.util.ApiKeyCipher;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -47,7 +46,7 @@ public class UserApiKeyApplicationService {
         if (entry == null) {
             return null;
         }
-        Assert.notBlank(entry.getApiKeyEnc(), () -> SystemIntervalException.of("用户API Key密文为空"));
+        Assert.notBlank(entry.getApiKeyEnc(), () -> TripExceptions.system("用户API Key密文为空"));
         return apiKeyCipher.decrypt(entry.getApiKeyEnc());
     }
 
@@ -58,18 +57,18 @@ public class UserApiKeyApplicationService {
         String keyPrefix = providerInfo.getKeyPrefix().trim();
         String value = StringUtils.trimToEmpty(apiKey);
         Assert.isTrue(value.startsWith(keyPrefix) && value.length() > keyPrefix.length(),
-                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "API Key不能为空且应以" + keyPrefix + "开头"));
+                () -> TripExceptions.invalidParameter("API Key不能为空且应以" + keyPrefix + "开头"));
         Assert.isTrue(value.chars().noneMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c) || Character.isISOControl(c)),
-                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "API Key不能包含空白或控制字符"));
+                () -> TripExceptions.invalidParameter("API Key不能包含空白或控制字符"));
         Assert.isTrue(value.getBytes(StandardCharsets.UTF_8).length <= MAX_KEY_BYTES,
-                () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "API Key长度超出支持范围"));
+                () -> TripExceptions.invalidParameter("API Key长度超出支持范围"));
         String encrypted = apiKeyCipher.encrypt(value);
         Assert.isTrue(userApiKeyDomainService.saveEncryptedKey(userId.trim(), providerInfo.getName().trim(), encrypted),
-                () -> SystemIntervalException.of("用户API Key保存失败"));
+                () -> TripExceptions.system("用户API Key保存失败"));
     }
 
     private void validateIdentity(String userId, BusinessProvider provider) {
-        Assert.notBlank(userId, () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "用户ID不能为空"));
-        Assert.notNull(provider, () -> BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), "凭据提供商不能为空"));
+        Assert.notBlank(userId, () -> TripExceptions.invalidParameter("用户ID不能为空"));
+        Assert.notNull(provider, () -> TripExceptions.invalidParameter("凭据提供商不能为空"));
     }
 }

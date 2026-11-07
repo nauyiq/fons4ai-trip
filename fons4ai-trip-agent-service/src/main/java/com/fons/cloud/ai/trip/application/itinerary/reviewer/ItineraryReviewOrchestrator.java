@@ -7,7 +7,7 @@ import com.fons.cloud.ai.trip.common.dto.ItineraryReviewContext;
 import com.fons.cloud.ai.trip.common.response.ItineraryDimensionReview;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
@@ -35,7 +35,7 @@ public final class ItineraryReviewOrchestrator {
      */
     public ItineraryReviewOrchestrator(ItineraryReviewRuleSet ruleSet) {
         if (ruleSet == null) {
-            throw SystemIntervalException.of("审核规则集不能为空");
+            throw TripExceptions.system("审核规则集不能为空");
         }
         this.ruleSet = ruleSet;
         this.arbitrator = new ItineraryReviewArbitrator(ruleSet.requiredDimensions());
@@ -48,10 +48,10 @@ public final class ItineraryReviewOrchestrator {
                                         ItineraryReviewContext context) {
         // 1. 确认规划标识与本轮可信审核上下文均可用
         if (context == null) {
-            throw SystemIntervalException.of("审核上下文不能为空");
+            throw TripExceptions.system("审核上下文不能为空");
         }
         if (planningResult == null || StringUtils.isBlank(planningResult.getPlanId())) {
-            throw SystemIntervalException.of("被审核的规划结果及planId不能为空");
+            throw TripExceptions.system("被审核的规划结果及planId不能为空");
         }
         // 2. 按规则集逐一执行维度审核，将单个审核器失败记录为该维度失败
         List<ItineraryDimensionReviewResult> dimensionResults = ruleSet.reviewers().stream()
@@ -99,14 +99,14 @@ public final class ItineraryReviewOrchestrator {
 
         public ItineraryReviewRuleSet {
             if (requiredDimensions == null || requiredDimensions.isEmpty()) {
-                throw SystemIntervalException.of("审核规则集必需维度不能为空");
+                throw TripExceptions.system("审核规则集必需维度不能为空");
             }
             if (reviewers == null || reviewers.isEmpty()) {
-                throw SystemIntervalException.of("审核规则集审核器不能为空");
+                throw TripExceptions.system("审核规则集审核器不能为空");
             }
             for (ItineraryReviewDimension dimension : requiredDimensions) {
                 if (dimension == null) {
-                    throw SystemIntervalException.of("审核规则集必需维度不能包含null");
+                    throw TripExceptions.system("审核规则集必需维度不能包含null");
                 }
             }
             validateReviewers(requiredDimensions, reviewers);
@@ -120,14 +120,14 @@ public final class ItineraryReviewOrchestrator {
                     EnumSet.noneOf(ItineraryReviewDimension.class);
             for (ItineraryDimensionReviewer reviewer : reviewers) {
                 if (reviewer == null) {
-                    throw SystemIntervalException.of("行程审核器不能包含null");
+                    throw TripExceptions.system("行程审核器不能包含null");
                 }
                 ItineraryReviewDimension dimension = reviewer.dimension();
                 if (dimension == null) {
-                    throw SystemIntervalException.of("行程审核维度不能为空");
+                    throw TripExceptions.system("行程审核维度不能为空");
                 }
                 if (!registeredDimensions.add(dimension)) {
-                    throw SystemIntervalException.of("行程审核维度重复注册：" + dimension);
+                    throw TripExceptions.system("行程审核维度重复注册：" + dimension);
                 }
             }
             if (!registeredDimensions.equals(requiredDimensions)) {
@@ -135,7 +135,7 @@ public final class ItineraryReviewOrchestrator {
                 missingDimensions.removeAll(registeredDimensions);
                 EnumSet<ItineraryReviewDimension> unexpectedDimensions = EnumSet.copyOf(registeredDimensions);
                 unexpectedDimensions.removeAll(requiredDimensions);
-                throw SystemIntervalException.of("审核规则集维度与审核器不一致：missing="
+                throw TripExceptions.system("审核规则集维度与审核器不一致：missing="
                         + missingDimensions + "，unexpected=" + unexpectedDimensions);
             }
         }

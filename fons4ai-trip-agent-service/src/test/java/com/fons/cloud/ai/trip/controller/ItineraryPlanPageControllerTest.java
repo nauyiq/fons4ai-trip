@@ -4,7 +4,8 @@ import com.fons.cloud.ai.trip.application.itinerary.ItineraryPlanPageApplication
 import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.common.dto.CandidateOwner;
 import com.fons.cloud.auth.satoken.api.SaTokenAuthTemplate;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class ItineraryPlanPageControllerTest {
         assertEquals(TripAgentResultCode.ITINERARY_PLAN_PAGE_NOT_EXIST.getCode(), result.getCode());
 
         pageService.reject = true;
-        assertThrows(BusinessRuntimeException.class,
+        assertThrows(ValidationException.class,
                 () -> controller.read("PLAN-1", "CONVERSATION-1", response));
     }
 
@@ -101,7 +102,7 @@ class ItineraryPlanPageControllerTest {
             readOwner = owner;
             readPlanId = planId;
             if (reject) {
-                throw BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "方案不可访问");
+                throw TripExceptions.invalidRequest("方案不可访问");
             }
             return html;
         }

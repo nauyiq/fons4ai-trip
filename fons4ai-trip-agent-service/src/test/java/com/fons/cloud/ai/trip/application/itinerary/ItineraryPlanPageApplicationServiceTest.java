@@ -11,9 +11,9 @@ import com.fons.cloud.ai.trip.domain.entity.ChatConversation;
 import com.fons.cloud.ai.trip.domain.service.impl.ChatConversationDomainServiceImpl;
 import com.fons.cloud.ai.trip.infrastructure.render.ItineraryPlanHtmlRenderer;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanPageStore;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
-import com.fons.cloud.common.result.ResultCode;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import com.fons.cloud.file.api.OssStoreService;
 import com.fons.cloud.file.common.FileException;
 import com.fons.cloud.file.common.request.OssObjectRequest;
@@ -86,7 +86,7 @@ class ItineraryPlanPageApplicationServiceTest {
     void rejectedPlanNeverRendersOrUploads() {
         eligibilityService.reject = true;
 
-        assertThrows(BusinessRuntimeException.class, () -> service.create(owner, "PLAN-1"));
+        assertThrows(ValidationException.class, () -> service.create(owner, "PLAN-1"));
 
         assertEquals(0, renderer.renderCount);
         assertEquals(0, ossStoreService.uploadCount);
@@ -125,7 +125,7 @@ class ItineraryPlanPageApplicationServiceTest {
         eligibilityService.source = source();
         conversationDomainService.allowed = false;
 
-        assertThrows(BusinessRuntimeException.class, () -> service.read(owner, "PLAN-1"));
+        assertThrows(ValidationException.class, () -> service.read(owner, "PLAN-1"));
     }
 
     private ItineraryPublicationSource source() {
@@ -148,7 +148,7 @@ class ItineraryPlanPageApplicationServiceTest {
         @Override
         public ItineraryPublicationSource requirePublishable(CandidateOwner owner, String planId) {
             if (reject) {
-                throw BusinessRuntimeException.of(ResultCode.ILLEGAL_REQUEST_LIMITED.getCode(), "方案尚不可发布");
+                throw TripExceptions.invalidRequest("方案尚不可发布");
             }
             return source;
         }

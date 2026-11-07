@@ -18,7 +18,7 @@ import com.fons.cloud.ai.trip.common.constants.TripAgentResultCode;
 import com.fons.cloud.ai.trip.agent.core.TripAgent;
 import com.fons.cloud.ai.trip.common.request.ChatMessageRequest;
 import com.fons.cloud.ai.trip.infrastructure.util.IdGenerator;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.db.mybatisplus.BaseEntity;
 import lombok.*;
 import org.apache.commons.collections4.CollectionUtils;
@@ -181,7 +181,7 @@ public class ChatMessage extends BaseEntity {
         } else {
             // 创建最终Agent回复的消息
             AgentCompleteInfo completeInfo = result.getCompleteInfo();
-            Assert.notNull(completeInfo, () -> SystemIntervalException.of("Agent最终回复内容为空"));
+            Assert.notNull(completeInfo, () -> TripExceptions.system("Agent最终回复内容为空"));
             List<ChatMessage> messages = new ArrayList<>();
             ChatMessage finalAnswer = ChatMessage.builder()
                     .runId(result.getRunId())
@@ -228,7 +228,7 @@ public class ChatMessage extends BaseEntity {
     public static List<ChatMessage> createInputRequired(AgentRunResult result) {
         List<HumanInTheLoopInfo> inputRequests = result.getHumanInTheLoopInfos().stream()
                 .filter(hitl -> hitl.getKind() == HumanInTheLoopKind.INPUT_REQUIRED).toList();
-        Assert.notEmpty(inputRequests, () -> SystemIntervalException.of("未发现信息补充消息， 无法创建Agent信息补充消息"));
+        Assert.notEmpty(inputRequests, () -> TripExceptions.system("未发现信息补充消息， 无法创建Agent信息补充消息"));
 
         return inputRequests.stream().map(requiredInfo -> {
             JSONObject extra = new JSONObject();
@@ -263,7 +263,7 @@ public class ChatMessage extends BaseEntity {
      */
     public static List<ChatMessage> createApproval(AgentRunResult result) {
         List<HumanInTheLoopInfo> approvalInfos = result.getHumanInTheLoopInfos().stream().filter(hitl -> hitl.getKind() == HumanInTheLoopKind.APPROVAL).toList();
-        Assert.notEmpty(approvalInfos, () -> SystemIntervalException.of("未发现审批消息， 无法创建Agent审批消息"));
+        Assert.notEmpty(approvalInfos, () -> TripExceptions.system("未发现审批消息， 无法创建Agent审批消息"));
 
         return approvalInfos.stream().map(hitl -> ChatMessage.builder()
                 .runId(result.getRunId())

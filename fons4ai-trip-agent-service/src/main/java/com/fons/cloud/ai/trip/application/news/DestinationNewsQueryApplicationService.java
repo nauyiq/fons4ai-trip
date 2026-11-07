@@ -5,8 +5,8 @@ import com.fons.cloud.ai.trip.common.constants.DestinationNewsTopic;
 import com.fons.cloud.ai.trip.common.dto.DestinationNewsQueryResult;
 import com.fons.cloud.ai.trip.common.dto.DestinationNewsQueryResult.NewsArticle;
 import com.fons.cloud.ai.trip.infrastructure.client.DestinationNewsClient;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.result.ResultCode;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -183,7 +183,7 @@ public class DestinationNewsQueryApplicationService {
         return name.toLowerCase(Locale.ROOT).startsWith("utm_");
     }
 
-    private BusinessRuntimeException invalidParam(String message) {
-        return BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(), message);
+    private ValidationException invalidParam(String message) {
+        return TripExceptions.invalidParameter(message);
     }
 }

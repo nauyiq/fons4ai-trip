@@ -16,7 +16,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryPlanRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryRepairCycleRepository;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryReviewRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.ValidationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -84,7 +84,7 @@ class ItineraryPublicationEligibilityValidatorServiceTest {
     @Test
     void closedCycleWithStopActionCannotBePublished() {
         review.get().setNextAction(ItineraryReviewNextAction.STOP_NO_FEASIBLE_PROPOSAL);
-        assertThrows(BusinessRuntimeException.class,
+        assertThrows(ValidationException.class,
                 () -> service.requirePublishable(owner, "PLAN-1"));
     }
 
@@ -92,7 +92,7 @@ class ItineraryPublicationEligibilityValidatorServiceTest {
     void storedReviewWithoutCommittedClosedCycleCannotBePublished() {
         cycle.set(new ItineraryRepairCycle(ItineraryScope.from(plan.get()), "PLAN-1", "RUN-1",
                 0, 0, ItineraryRepairStatus.AWAITING_REVIEW));
-        assertThrows(BusinessRuntimeException.class,
+        assertThrows(ValidationException.class,
                 () -> service.requirePublishable(owner, "PLAN-1"));
     }
 
@@ -100,14 +100,14 @@ class ItineraryPublicationEligibilityValidatorServiceTest {
     void oldPlanCannotBePublishedAfterNewPlanBecomesCurrent() {
         cycle.set(new ItineraryRepairCycle(ItineraryScope.from(plan.get()), "PLAN-2", "RUN-1",
                 1, 0, ItineraryRepairStatus.CLOSED));
-        assertThrows(BusinessRuntimeException.class,
+        assertThrows(ValidationException.class,
                 () -> service.requirePublishable(owner, "PLAN-1"));
     }
 
     @Test
     void partialReviewCannotBePublishedEvenWithProceedAction() {
         review.get().setExecutionStatus(ItineraryReviewExecutionStatus.PARTIAL);
-        assertThrows(BusinessRuntimeException.class,
+        assertThrows(ValidationException.class,
                 () -> service.requirePublishable(owner, "PLAN-1"));
     }
 }

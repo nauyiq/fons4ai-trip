@@ -18,7 +18,8 @@ import com.fons.cloud.ai.trip.infrastructure.converter.ChatMessageConverter;
 import com.fons.cloud.ai.trip.infrastructure.repository.AnalysisIntentRepository;
 import com.fons.cloud.ai.trip.infrastructure.util.SemanticsMatcherIntentRecognition;
 import com.fons.cloud.ai.agent.observability.annotation.AgentObserved;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import io.agentscope.core.message.Msg;
@@ -135,7 +136,7 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
             String analysisRunId,
             IntentRecognitionResult recognitionResult) {
         if (recognitionResult == null) {
-            return Mono.error(SystemIntervalException.of("意图识别结果不能为空"));
+            return Mono.error(TripExceptions.system("意图识别结果不能为空"));
         }
         return Mono.fromRunnable(() -> repository.saveIntentRecognitionResult(
                         context.getUserId(), analysisRunId, recognitionResult))
@@ -162,13 +163,13 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
         try {
             String json = extractJsonBlock(text);
             if (StringUtils.isBlank(json)) {
-                throw SystemIntervalException.of("意图识别Agent返回内容为空");
+                throw TripExceptions.system("意图识别Agent返回内容为空");
             }
 
             JSONObject root = JSON.parseObject(json);
             JSONArray intentArray = root.getJSONArray("intents");
             if (intentArray == null || intentArray.isEmpty()) {
-                throw SystemIntervalException.of("意图识别结果中的intents不能为空");
+                throw TripExceptions.system("意图识别结果中的intents不能为空");
             }
 
             List<IntentRecognitionResult.IntentItem> intents = new ArrayList<>(intentArray.size());
@@ -177,19 +178,19 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
                 JSONObject item = intentArray.getJSONObject(index);
                 IntentCategory category = parseCategory(item.getString("intent"));
                 if (!categories.add(category)) {
-                    throw SystemIntervalException.of("意图识别结果包含重复意图: " + category.getCode());
+                    throw TripExceptions.system("意图识别结果包含重复意图: " + category.getCode());
                 }
 
                 String targetAgent = item.getString("target_agent");
                 if (!StringUtils.equals(category.getDefaultTargetAgent(), targetAgent)) {
-                    throw SystemIntervalException.of("意图与目标Agent不匹配: " + category.getCode());
+                    throw TripExceptions.system("意图与目标Agent不匹配: " + category.getCode());
                 }
 
                 IntentRecognitionResult.Confidence confidence = parseConfidence(
                         item.getString("confidence"));
                 String reason = item.getString("reason");
                 if (StringUtils.isBlank(reason)) {
-                    throw SystemIntervalException.of("意图识别结果中的reason不能为空");
+                    throw TripExceptions.system("意图识别结果中的reason不能为空");
                 }
                 intents.add(new IntentRecognitionResult.IntentItem(
                         category, targetAgent, confidence, reason.trim()));
@@ -197,18 +198,18 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
 
             IntentCategory primary = parseCategory(root.getString("primary_intent"));
             if (!categories.contains(primary)) {
-                throw SystemIntervalException.of("primary_intent必须存在于intents中");
+                throw TripExceptions.system("primary_intent必须存在于intents中");
             }
 
             Boolean multiIntent = root.getBoolean("multi_intent");
             boolean expectedMultiIntent = intents.size() > 1;
             if (multiIntent == null || multiIntent != expectedMultiIntent) {
-                throw SystemIntervalException.of("multi_intent与intents数量不一致");
+                throw TripExceptions.system("multi_intent与intents数量不一致");
             }
 
             String overallReason = root.getString("overall_reason");
             if (StringUtils.isBlank(overallReason)) {
-                throw SystemIntervalException.of("意图识别结果中的overall_reason不能为空");
+                throw TripExceptions.system("意图识别结果中的overall_reason不能为空");
             }
 
             return new IntentRecognitionResult(
@@ -222,7 +223,7 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
             throw exception;
         } catch (Exception exception) {
             log.error("[INTENT_RECOGNITION_STEP]解析意图识别结果失败，响应内容：{}", text, exception);
-            throw SystemIntervalException.of("意图识别Agent返回格式不正确", exception);
+            throw TripExceptions.system("意图识别Agent返回格式不正确", exception);
         }
     }
 
@@ -232,7 +233,7 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
                 return category;
             }
         }
-        throw SystemIntervalException.of("不支持的意图类型: " + value);
+        throw TripExceptions.system("不支持的意图类型: " + value);
     }
 
     private IntentRecognitionResult.Confidence parseConfidence(String value) {
@@ -240,7 +241,7 @@ public class IntentRecognitionStepHandler extends AbstractAgentExecuteHandler {
             case "high" -> IntentRecognitionResult.Confidence.HIGH;
             case "medium" -> IntentRecognitionResult.Confidence.MEDIUM;
             case "low" -> IntentRecognitionResult.Confidence.LOW;
-            default -> throw SystemIntervalException.of("不支持的意图置信度: " + value);
+            default -> throw TripExceptions.system("不支持的意图置信度: " + value);
         };
     }
 

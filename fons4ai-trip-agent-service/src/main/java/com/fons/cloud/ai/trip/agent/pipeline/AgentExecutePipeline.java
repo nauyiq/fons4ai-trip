@@ -6,7 +6,7 @@ import com.fons.cloud.ai.agent.model.response.AgentExecutionSummary;
 import com.fons.cloud.ai.agent.observability.annotation.AgentObserved;
 import com.fons.cloud.ai.trip.agent.pipeline.support.MasterExecuteTaskStepHandler;
 import com.fons.cloud.ai.trip.common.dto.IntentRecognitionResult;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.reactor.api.ReactiveResultHandler;
 import com.fons.cloud.reactor.api.ReactiveTaskRun;
 import com.fons.cloud.reactor.api.ReactiveTaskRunFactory;
@@ -131,7 +131,7 @@ public class AgentExecutePipeline {
         // 业务身份由业务入口补齐，不交给观测生成；创建期完成以便任何采集阶段读取。
         normalizeRequest(request);
         if (context == null || context.getUserInput() != request) {
-            throw SystemIntervalException.of("执行上下文必须对应本次Agent请求");
+            throw TripExceptions.system("执行上下文必须对应本次Agent请求");
         }
         return reactiveTaskRunFactory.create(scope -> Mono.defer(() -> {
             log.info("开始执行Agent管道，pipelineRunId:{}, agentRunId:{}, resume:{}", scope.runId(), request.getRunId(), request.getHitlRequestInfo() != null);
@@ -166,7 +166,7 @@ public class AgentExecutePipeline {
      */
     private void normalizeRequest(AgentRequest request) {
         if (request == null) {
-            throw SystemIntervalException.of("Agent请求不能为空");
+            throw TripExceptions.system("Agent请求不能为空");
         }
         if (StringUtils.isBlank(request.getRunId())) {
             request.setRunId(UUID.randomUUID().toString().replace("-", ""));
@@ -178,12 +178,12 @@ public class AgentExecutePipeline {
      */
     private PipelineResult buildResult(ReactiveTaskScope<String> scope, AgentPipelineExecuteContext context) {
         if (context.getStep() != AgentExecutionStep.END) {
-            throw SystemIntervalException.of("Agent管道未执行到结束步骤，currentStep: " + context.getStep());
+            throw TripExceptions.system("Agent管道未执行到结束步骤，currentStep: " + context.getStep());
         }
 
         AgentRunResult masterAgentResult = context.getMasterAgentResult();
         if (masterAgentResult == null) {
-            throw SystemIntervalException.of("Agent管道未产生MasterAgent执行结果");
+            throw TripExceptions.system("Agent管道未产生MasterAgent执行结果");
         }
         log.info("Agent管道执行分段结束，pipelineRunId:{}, agentRunId:{}, agentState:{}", scope.runId(), masterAgentResult.getRunId(), masterAgentResult.getState());
 

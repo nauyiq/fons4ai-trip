@@ -21,7 +21,10 @@ import com.fons.cloud.ai.trip.common.response.PlanItineraryResult;
 import com.fons.cloud.ai.trip.common.response.PlanItineraryResult.ProposalSummary;
 import com.fons.cloud.ai.trip.infrastructure.agent.TripRuntimeContext;
 import com.fons.cloud.ai.trip.infrastructure.notification.ItineraryPlanPageNotificationRegistry;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.BsException;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import io.agentscope.core.agent.RuntimeContext;
@@ -145,8 +148,8 @@ public class ItineraryPlannerTools implements BaseTool {
             PlanItineraryResult summary = toSummary(result);
             String message = "行程规划完成，已生成" + summary.proposalCount() + "个代表方案；完整方案已保存，请使用planId继续审核和展示。";
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, summary);
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][plan_itinerary] 规划请求未完成，userId={}, code={}", userId, e.getCode());
+        } catch (BusinessRuntimeException | ValidationException e) {
+            log.warn("[TOOL][plan_itinerary] 规划请求未完成，userId={}, code={}", userId, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (CancellationException e) {
             throw e;
@@ -195,9 +198,9 @@ public class ItineraryPlannerTools implements BaseTool {
                     + "，nextAction=" + result.getNextAction()
                     + "。请依据结构化审核结果继续处理。";
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             log.warn("[TOOL][review_itinerary_plan] 审核请求未完成，userId={}, planId={}, code={}",
-                    normalizedUserId, normalizedPlanId, e.getCode());
+                    normalizedUserId, normalizedPlanId, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][review_itinerary_plan] 行程规划审核失败，userId={}, planId={}",
@@ -237,9 +240,9 @@ public class ItineraryPlannerTools implements BaseTool {
                     artifact.recommendedProposalId(), normalizedOrderId);
             pageNotificationRegistry.publishForAgentRun(currentRunId(context), ready);
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "行程方案页面已生成并保存。", ready);
-        } catch (BusinessRuntimeException e) {
+        } catch (BusinessRuntimeException | ValidationException e) {
             log.warn("[TOOL][create_itinerary_plan_page] 页面生成未完成，userId={}, planId={}, code={}",
-                    normalizedUserId, normalizedPlanId, e.getCode());
+                    normalizedUserId, normalizedPlanId, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][create_itinerary_plan_page] 页面生成失败，userId={}, planId={}",
@@ -280,7 +283,7 @@ public class ItineraryPlannerTools implements BaseTool {
     private String requiredRuntimeValue(String value, String parameterName) {
         String normalized = StringUtils.trimToNull(value);
         if (normalized == null) {
-            throw BusinessRuntimeException.of(ResultCode.PARAMS_ERROR.getCode(),
+            throw TripExceptions.invalidParameter(
                     "运行时上下文缺少" + parameterName);
         }
         return normalized;
@@ -325,11 +328,11 @@ public class ItineraryPlannerTools implements BaseTool {
         return new ProposalSummary(proposal.proposalId(), proposal.tags(), proposal.scores().overall());
     }
 
-    private TripAgentToolResultCode resolveBusinessErrorCode(BusinessRuntimeException e) {
-        if (ResultCode.ILLEGAL_REQUEST_LIMITED.getCode().equals(e.getCode())) {
+    private TripAgentToolResultCode resolveBusinessErrorCode(BsException e) {
+        if (ResultCode.ILLEGAL_REQUEST_LIMITED.getCode().equals(e.getExceptionCode().getCode())) {
             return TripAgentToolResultCode.INVALID_STATE;
         }
-        return ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())
+        return ResultCode.PARAMS_ERROR.getCode().equals(e.getExceptionCode().getCode())
                 ? TripAgentToolResultCode.INVALID_PARAM : TripAgentToolResultCode.INTERNAL_ERROR;
     }
 

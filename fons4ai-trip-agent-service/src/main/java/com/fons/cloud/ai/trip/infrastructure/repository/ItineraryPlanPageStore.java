@@ -4,7 +4,8 @@ import cn.hutool.core.lang.Assert;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import com.fons.cloud.file.api.OssStoreService;
 import com.fons.cloud.file.common.FileException;
 import com.fons.cloud.file.common.request.OssObjectRequest;
@@ -46,11 +47,11 @@ public class ItineraryPlanPageStore {
      * @throws SystemIntervalException 页面数据无效、上传失败或OSS返回路径不一致时抛出
      */
     public String save(String userId, String conversationId, String planId, String reviewId, String html) {
-        Assert.notBlank(userId, () -> SystemIntervalException.of("行程页面用户不能为空"));
-        Assert.notBlank(conversationId, () -> SystemIntervalException.of("行程页面会话不能为空"));
-        Assert.isTrue(isSafeId(planId), () -> SystemIntervalException.of("行程页面的规划标识无效"));
-        Assert.notBlank(reviewId, () -> SystemIntervalException.of("行程页面的审核标识不能为空"));
-        Assert.notBlank(html, () -> SystemIntervalException.of("行程页面HTML不能为空"));
+        Assert.notBlank(userId, () -> TripExceptions.system("行程页面用户不能为空"));
+        Assert.notBlank(conversationId, () -> TripExceptions.system("行程页面会话不能为空"));
+        Assert.isTrue(isSafeId(planId), () -> TripExceptions.system("行程页面的规划标识无效"));
+        Assert.notBlank(reviewId, () -> TripExceptions.system("行程页面的审核标识不能为空"));
+        Assert.notBlank(html, () -> TripExceptions.system("行程页面HTML不能为空"));
 
         String objectKey = objectKey(userId, conversationId, planId);
         upload(objectKey, planId, reviewId, html);
@@ -59,8 +60,8 @@ public class ItineraryPlanPageStore {
 
     /** 每次发布使用独立对象，数据库提交失败不会覆盖旧页面。 */
     public String savePublished(String userId, String orderId, String planId, String reviewId, String html) {
-        Assert.isTrue(StringUtils.isNoneBlank(userId, orderId, html), () -> SystemIntervalException.of("发布页面的用户、差旅单或内容不能为空"));
-        Assert.isTrue(isSafeId(planId) && isSafeId(reviewId), () -> SystemIntervalException.of("发布页面的规划或审核标识无效"));
+        Assert.isTrue(StringUtils.isNoneBlank(userId, orderId, html), () -> TripExceptions.system("发布页面的用户、差旅单或内容不能为空"));
+        Assert.isTrue(isSafeId(planId) && isSafeId(reviewId), () -> TripExceptions.system("发布页面的规划或审核标识无效"));
         String scope = DigestUtil.sha256Hex(JSON.toJSONBytes(java.util.List.of(userId.trim(), orderId.trim())));
         String objectKey = PUBLISHED_PREFIX + scope + "/" + planId + "/" + reviewId + "/" + UUID.randomUUID() + ".html";
         upload(objectKey, planId, reviewId, html);
@@ -77,9 +78,9 @@ public class ItineraryPlanPageStore {
                     .metadata(Map.of("content-type", HTML_CONTENT_TYPE, REVIEW_ID_METADATA, reviewId))
                     .build());
             Assert.isTrue(response != null && objectKey.equals(response.getObjectKey()),
-                    () -> SystemIntervalException.of("行程页面OSS上传结果缺失或对象路径不一致"));
+                    () -> TripExceptions.system("行程页面OSS上传结果缺失或对象路径不一致"));
         } catch (FileException e) {
-            throw SystemIntervalException.of("行程页面OSS保存失败", e);
+            throw TripExceptions.system("行程页面OSS保存失败", e);
         }
     }
 
@@ -87,10 +88,10 @@ public class ItineraryPlanPageStore {
      * 读取当前审核对应的页面。页面不存在或仍属于旧审核时返回null。
      */
     public String read(String userId, String conversationId, String planId, String reviewId) {
-        Assert.notBlank(userId, () -> SystemIntervalException.of("行程页面用户不能为空"));
-        Assert.notBlank(conversationId, () -> SystemIntervalException.of("行程页面会话不能为空"));
-        Assert.isTrue(isSafeId(planId), () -> SystemIntervalException.of("行程页面的规划标识无效"));
-        Assert.notBlank(reviewId, () -> SystemIntervalException.of("行程页面的审核标识不能为空"));
+        Assert.notBlank(userId, () -> TripExceptions.system("行程页面用户不能为空"));
+        Assert.notBlank(conversationId, () -> TripExceptions.system("行程页面会话不能为空"));
+        Assert.isTrue(isSafeId(planId), () -> TripExceptions.system("行程页面的规划标识无效"));
+        Assert.notBlank(reviewId, () -> TripExceptions.system("行程页面的审核标识不能为空"));
 
         return readObject(objectKey(userId, conversationId, planId), reviewId);
     }
@@ -98,9 +99,9 @@ public class ItineraryPlanPageStore {
     /** 读取数据库中已发布页面的对象，路径只能由服务端保存的记录提供。 */
     public String readPublished(String objectKey, String reviewId) {
         Assert.isTrue(StringUtils.isNotBlank(objectKey) && objectKey.startsWith(PUBLISHED_PREFIX)
-                        && isSafeId(reviewId), () -> SystemIntervalException.of("已发布页面的对象或审核标识无效"));
+                        && isSafeId(reviewId), () -> TripExceptions.system("已发布页面的对象或审核标识无效"));
         String html = readObject(objectKey, reviewId);
-        Assert.notNull(html, () -> SystemIntervalException.of("已发布行程页面不存在或审核标识不一致"));
+        Assert.notNull(html, () -> TripExceptions.system("已发布行程页面不存在或审核标识不一致"));
         return html;
     }
 
@@ -117,12 +118,12 @@ public class ItineraryPlanPageStore {
             }
             OssObjectResponse page = ossStoreService.download(request);
             Assert.isTrue(page != null && objectKey.equals(page.getObjectKey()) && page.getInputStream() != null,
-                    () -> SystemIntervalException.of("行程页面OSS下载结果缺失或对象路径不一致"));
+                    () -> TripExceptions.system("行程页面OSS下载结果缺失或对象路径不一致"));
             try (InputStream inputStream = page.getInputStream()) {
                 return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
             }
         } catch (FileException | IOException e) {
-            throw SystemIntervalException.of("行程页面OSS读取失败", e);
+            throw TripExceptions.system("行程页面OSS读取失败", e);
         }
     }
 

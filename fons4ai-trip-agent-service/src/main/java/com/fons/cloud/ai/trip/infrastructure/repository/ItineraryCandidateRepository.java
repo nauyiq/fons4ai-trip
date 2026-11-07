@@ -12,7 +12,8 @@ import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateGroups;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateScope;
 import com.fons.cloud.ai.trip.common.dto.ItineraryCandidateSnapshot;
 import com.fons.cloud.ai.trip.common.dto.TransportCandidate;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
+import com.fons.cloud.common.exception.SystemIntervalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -110,7 +111,7 @@ public class ItineraryCandidateRepository {
             batch.execute();
         } catch (RedisException e) {
             log.warn("[ItineraryCandidateStore] 读取候选快照失败，exceptionType={}", e.getClass().getSimpleName());
-            throw SystemIntervalException.of("行程候选快照读取失败", e);
+            throw TripExceptions.system("行程候选快照读取失败", e);
         }
         try {
             return new ItineraryCandidateSnapshot(OffsetDateTime.now(ZoneOffset.UTC),
@@ -125,7 +126,7 @@ public class ItineraryCandidateRepository {
                     decodePool(groups.hotels(), completedValue(hotels), HotelCandidate.class,
                             this::validateHotelCandidate, HotelCandidate::candidateId));
         } catch (JSONException e) {
-            throw SystemIntervalException.of("候选存储JSON格式无效", e);
+            throw TripExceptions.system("候选存储JSON格式无效", e);
         }
     }
 
@@ -141,7 +142,7 @@ public class ItineraryCandidateRepository {
             if (cause instanceof CancellationException cancellation) {
                 throw cancellation;
             }
-            throw SystemIntervalException.of("行程候选快照读取失败", cause);
+            throw TripExceptions.system("行程候选快照读取失败", cause);
         }
     }
 
@@ -184,9 +185,9 @@ public class ItineraryCandidateRepository {
             }
         } catch (RedisException e) {
             log.warn("[ItineraryCandidateStore] 保存候选失败，exceptionType={}", e.getClass().getSimpleName());
-            throw SystemIntervalException.of("搜索候选保存失败，请重新搜索后再规划", e);
+            throw TripExceptions.system("搜索候选保存失败，请重新搜索后再规划", e);
         } catch (JSONException e) {
-            throw SystemIntervalException.of("候选存储JSON格式无效", e);
+            throw TripExceptions.system("候选存储JSON格式无效", e);
         }
     }
 
@@ -198,7 +199,7 @@ public class ItineraryCandidateRepository {
             }
             return result;
         } catch (JSONException e) {
-            throw SystemIntervalException.of("搜索候选序列化失败", e);
+            throw TripExceptions.system("搜索候选序列化失败", e);
         }
     }
 
@@ -236,7 +237,7 @@ public class ItineraryCandidateRepository {
         try {
             return OffsetDateTime.parse(stored.getString("searchedAt"));
         } catch (DateTimeParseException e) {
-            throw SystemIntervalException.of("候选供应商获取时间无效", e);
+            throw TripExceptions.system("候选供应商获取时间无效", e);
         }
     }
 
@@ -268,6 +269,6 @@ public class ItineraryCandidateRepository {
     }
 
     private SystemIntervalException protocolError(String message) {
-        return SystemIntervalException.of(message);
+        return TripExceptions.system(message);
     }
 }

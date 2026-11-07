@@ -1,8 +1,7 @@
 package com.fons.cloud.ai.trip.common.dto;
 
 import com.fons.cloud.ai.trip.common.request.ItineraryPlanRequest;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.result.ResultCode;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -48,7 +47,7 @@ public record ItineraryCandidateSnapshot(OffsetDateTime capturedAt,
     public Map<String, OffsetDateTime> searchedAtByCandidateId() {
         Set<String> duplicatedIds = duplicatedIds();
         if (!duplicatedIds.isEmpty()) {
-            throw BusinessRuntimeException.of(ResultCode.INVALID_DATA.getCode(),
+            throw TripExceptions.invalidData(
                     "本次候选池包含重复候选ID：" + String.join(",", duplicatedIds));
         }
         Map<String, OffsetDateTime> searchedAt = new HashMap<>();

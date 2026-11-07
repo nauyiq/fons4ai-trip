@@ -2,7 +2,7 @@ package com.fons.cloud.ai.trip.common.dto;
 
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TravelOrderReference;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -33,10 +33,10 @@ public record ItineraryReviewContext(OffsetDateTime reviewedAt,
 
     public ItineraryReviewContext {
         if (reviewedAt == null) {
-            throw SystemIntervalException.of("审核时间不能为空");
+            throw TripExceptions.system("审核时间不能为空");
         }
         if (businessDate == null) {
-            throw SystemIntervalException.of("审核业务日期不能为空");
+            throw TripExceptions.system("审核业务日期不能为空");
         }
         facts = facts == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(facts));
         if (coverageGaps == null) {
@@ -44,7 +44,7 @@ public record ItineraryReviewContext(OffsetDateTime reviewedAt,
         } else {
             for (ItineraryReviewCoverageGap gap : coverageGaps) {
                 if (gap == null) {
-                    throw SystemIntervalException.of("审核信息覆盖缺口不能包含null");
+                    throw TripExceptions.system("审核信息覆盖缺口不能包含null");
                 }
             }
             coverageGaps = List.copyOf(coverageGaps);

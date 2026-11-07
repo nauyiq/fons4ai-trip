@@ -4,7 +4,9 @@ import com.fons.cloud.ai.trip.application.business.TravelPolicyApplicationServic
 import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.TravelPolicy;
 import com.fons.cloud.ai.trip.common.response.PolicyCheckResult;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.BsException;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import io.agentscope.core.agent.RuntimeContext;
@@ -49,8 +51,8 @@ public class PolicyTools implements BaseTool {
         try {
             TravelPolicy policy = travelPolicyApplicationService.getPolicy(userId, destinationCity);
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "差旅政策查询成功，请按目的城市使用对应标准。", policy);
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][query_travel_policy] 政策查询未完成，userId={}, city={}, code={}", userId, destinationCity, e.getCode());
+        } catch (BusinessRuntimeException | ValidationException e) {
+            log.warn("[TOOL][query_travel_policy] 政策查询未完成，userId={}, city={}, code={}", userId, destinationCity, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][query_travel_policy] 政策查询失败，userId={}, city={}", userId, destinationCity, e);
@@ -90,8 +92,8 @@ public class PolicyTools implements BaseTool {
             String message = result.compliant() ? "订单摘要符合本次检查的政策标准，不代表审批通过。"
                     : "订单摘要超出政策标准或信息不足，请根据 violations 和 suggestions 处理。";
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][check_travel_policy] 政策校验未完成，userId={}, city={}, code={}", userId, destinationCity, e.getCode());
+        } catch (BusinessRuntimeException | ValidationException e) {
+            log.warn("[TOOL][check_travel_policy] 政策校验未完成，userId={}, city={}, code={}", userId, destinationCity, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][check_travel_policy] 政策校验失败，userId={}, city={}", userId, destinationCity, e);
@@ -100,8 +102,8 @@ public class PolicyTools implements BaseTool {
     }
 
     /** 应用层业务码转换为工具契约码，系统或未识别错误不降级成参数错误。 */
-    private TripAgentToolResultCode resolveBusinessErrorCode(BusinessRuntimeException e) {
-        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())) {
+    private TripAgentToolResultCode resolveBusinessErrorCode(BsException e) {
+        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getExceptionCode().getCode())) {
             return TripAgentToolResultCode.INVALID_PARAM;
         }
         return TripAgentToolResultCode.INTERNAL_ERROR;

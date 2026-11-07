@@ -3,7 +3,7 @@ package com.fons.cloud.ai.trip.infrastructure.util;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.extra.spring.SpringUtil;
 import com.fons.cloud.ai.trip.common.constants.ModelType;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import io.agentscope.core.model.Model;
 
 /**
@@ -35,7 +35,7 @@ public class ModelFacade {
      */
     public static Model getModel(ModelType modelType) {
         Model model = SpringUtil.getBean(modelType.getBeanName());
-        Assert.notNull(model, () -> SystemIntervalException.of("Not found LLM model with modelType:" + modelType));
+        Assert.notNull(model, () -> TripExceptions.system("Not found LLM model with modelType:" + modelType));
         return model;
     }
 

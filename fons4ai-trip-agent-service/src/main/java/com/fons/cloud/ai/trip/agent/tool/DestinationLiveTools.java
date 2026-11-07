@@ -6,7 +6,7 @@ import com.fons.cloud.ai.trip.common.constants.TripAgentToolResultCode;
 import com.fons.cloud.ai.trip.common.dto.DestinationNewsQueryResult;
 import com.fons.cloud.ai.trip.common.dto.WeatherQueryResult;
 import com.fons.cloud.ai.trip.infrastructure.client.WeatherClient;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.ValidationException;
 import com.fons.cloud.common.result.R;
 import com.fons.cloud.common.result.ResultCode;
 import io.agentscope.core.tool.Tool;
@@ -67,8 +67,8 @@ public class DestinationLiveTools implements BaseTool {
             String message = result.beyondRange() ? "指定日期超出可用预报范围，请勿重复调用；改用已接入的长周期天气工具，没有可用工具时说明该日天气暂不可查询。"
                     : "天气查询成功，请区分当前天气与指定日期预报。";
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][query_weather] 天气查询未完成，city={}, date={}, code={}", destinationCity, queryDateText, e.getCode());
+        } catch (ValidationException e) {
+            log.warn("[TOOL][query_weather] 天气查询未完成，city={}, date={}, code={}", destinationCity, queryDateText, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][query_weather] 天气查询失败，city={}, date={}", destinationCity, queryDateText, e);
@@ -114,8 +114,8 @@ public class DestinationLiveTools implements BaseTool {
                         + "条候选；不是全网总数，请核对城市、发布时间及原文后使用。";
             }
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), message, result);
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][query_destination_news] 资讯查询未完成，city={}, topic={}, code={}", destinationCity, newsTopic, e.getCode());
+        } catch (ValidationException e) {
+            log.warn("[TOOL][query_destination_news] 资讯查询未完成，city={}, topic={}, code={}", destinationCity, newsTopic, e.getExceptionCode().getCode());
             return R.failed(resolveBusinessErrorCode(e).getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("[TOOL][query_destination_news] 资讯查询失败，city={}, topic={}", destinationCity, newsTopic, e);
@@ -124,8 +124,8 @@ public class DestinationLiveTools implements BaseTool {
     }
 
     /** Client 参数错误转换为工具契约码，其他错误按内部异常处理。 */
-    private TripAgentToolResultCode resolveBusinessErrorCode(BusinessRuntimeException e) {
-        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getCode())) {
+    private TripAgentToolResultCode resolveBusinessErrorCode(ValidationException e) {
+        if (ResultCode.PARAMS_ERROR.getCode().equals(e.getExceptionCode().getCode())) {
             return TripAgentToolResultCode.INVALID_PARAM;
         }
         return TripAgentToolResultCode.INTERNAL_ERROR;

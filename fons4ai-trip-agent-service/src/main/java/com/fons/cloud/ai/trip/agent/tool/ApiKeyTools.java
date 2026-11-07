@@ -7,7 +7,8 @@ import com.fons.cloud.ai.trip.common.response.CheckApiKeyResult;
 import com.fons.cloud.ai.trip.common.response.SaveApiKeyResult;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.BusinessProviderConfigProperties;
 import com.fons.cloud.ai.trip.infrastructure.config.properties.BusinessProviderConfigProperties.ProviderInfo;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.ValidationException;
+import com.fons.cloud.common.exception.BusinessRuntimeException;
 import com.fons.cloud.common.result.R;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
@@ -85,8 +86,8 @@ public class ApiKeyTools implements BaseTool {
             userApiKeyApplicationService.saveApiKey(userId, provider, apiKey);
             return R.success(TripAgentToolResultCode.SUCCESS.getCode(), "途牛API Key已加密保存，远端有效性以实际服务调用为准。",
                     new SaveApiKeyResult(providerInfo.getName().trim(), true));
-        } catch (BusinessRuntimeException e) {
-            log.warn("[TOOL][save_tuniu_api_key] 凭据参数无效，userId={}, code={}", userId, e.getCode());
+        } catch (BusinessRuntimeException | ValidationException e) {
+            log.warn("[TOOL][save_tuniu_api_key] 凭据参数无效，userId={}, code={}", userId, e.getExceptionCode().getCode());
             return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), e.getMessage());
         } catch (Exception e) {
             // 数据库异常可能包含绑定值，不输出异常对象，避免将凭据密文写入日志。

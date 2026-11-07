@@ -11,7 +11,7 @@ import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TripRequest;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewResult;
 import com.fons.cloud.ai.trip.infrastructure.repository.ItineraryRepairCycleRepository;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
+import com.fons.cloud.common.exception.ValidationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +60,7 @@ class ItineraryRepairCycleValidatorServiceTest {
         assertEquals(ItineraryReviewNextAction.STOP_NO_FEASIBLE_PROPOSAL, finalReview.getNextAction());
         assertEquals(2, stored.get().replanCount());
         assertEquals(ItineraryRepairStatus.CLOSED, stored.get().status());
-        assertThrows(BusinessRuntimeException.class, () -> service.beforePlan(owner, request, "RUN-1"));
+        assertThrows(ValidationException.class, () -> service.beforePlan(owner, request, "RUN-1"));
     }
 
     @Test
@@ -70,7 +70,7 @@ class ItineraryRepairCycleValidatorServiceTest {
 
         assertEquals(ItineraryReviewNextAction.PROCEED, result.getNextAction());
         assertEquals(0, stored.get().replanCount());
-        assertThrows(BusinessRuntimeException.class, () -> service.beforePlan(owner, request, "RUN-1"));
+        assertThrows(ValidationException.class, () -> service.beforePlan(owner, request, "RUN-1"));
         service.beforePlan(owner, request, "RUN-2");
         service.afterPlan(owner, request, "RUN-2", planResult("PLAN-NEW"));
         assertEquals(0, stored.get().replanCount());
@@ -93,7 +93,7 @@ class ItineraryRepairCycleValidatorServiceTest {
         plan("PLAN-0", "RUN-1");
         review("PLAN-0", "RUN-1", ItineraryReviewNextAction.REQUEST_USER_INPUT);
 
-        assertThrows(BusinessRuntimeException.class, () -> service.beforePlan(owner, request, "RUN-1"));
+        assertThrows(ValidationException.class, () -> service.beforePlan(owner, request, "RUN-1"));
         service.beforePlan(owner, request, "RUN-2");
         service.afterPlan(owner, request, "RUN-2", planResult("PLAN-1"));
         assertEquals(1, stored.get().replanCount());
@@ -105,7 +105,7 @@ class ItineraryRepairCycleValidatorServiceTest {
         review("PLAN-0", "RUN-1", ItineraryReviewNextAction.REPLAN);
         plan("PLAN-1", "RUN-1");
 
-        assertThrows(BusinessRuntimeException.class,
+        assertThrows(ValidationException.class,
                 () -> service.beforeReview(owner, "PLAN-0", "RUN-1"));
     }
 

@@ -2,7 +2,7 @@ package com.fons.cloud.ai.trip.infrastructure.config.properties;
 
 import cn.hutool.core.lang.Assert;
 import com.fons.cloud.ai.trip.common.constants.BusinessProvider;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
@@ -34,10 +34,10 @@ public class BusinessProviderConfigProperties {
      * 获取完整的提供商配置；缺失配置属于系统异常，不能当成用户未配置凭据。
      */
     public ProviderInfo requireProviderInfo(BusinessProvider provider) {
-        Assert.notNull(provider, () -> SystemIntervalException.of("第三方服务提供商不能为空"));
+        Assert.notNull(provider, () -> TripExceptions.system("第三方服务提供商不能为空"));
         ProviderInfo info = providers == null ? null : providers.get(provider);
-        Assert.notNull(info, () -> SystemIntervalException.of("未配置第三方服务提供商：" + provider));
-        Assert.isTrue(StringUtils.isNoneBlank(info.getName(), info.getGuideUrl(), info.getKeyPrefix()), () -> SystemIntervalException.of("第三方服务提供商配置不完整：" + provider));
+        Assert.notNull(info, () -> TripExceptions.system("未配置第三方服务提供商：" + provider));
+        Assert.isTrue(StringUtils.isNoneBlank(info.getName(), info.getGuideUrl(), info.getKeyPrefix()), () -> TripExceptions.system("第三方服务提供商配置不完整：" + provider));
         return info;
     }
 

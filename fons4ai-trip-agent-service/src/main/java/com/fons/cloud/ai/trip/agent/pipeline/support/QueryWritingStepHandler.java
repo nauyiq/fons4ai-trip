@@ -17,7 +17,7 @@ import com.fons.cloud.ai.trip.domain.service.ChatMessageDomainService;
 import com.fons.cloud.ai.trip.infrastructure.converter.ChatMessageConverter;
 import com.fons.cloud.ai.trip.infrastructure.repository.AnalysisIntentRepository;
 import com.fons.cloud.ai.agent.observability.annotation.AgentObserved;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.ai.trip.common.exception.TripExceptions;
 import com.fons.cloud.reactor.api.ReactiveTaskScope;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -141,7 +141,7 @@ public class QueryWritingStepHandler extends AbstractAgentExecuteHandler {
         String rewriteResult = parseRewrittenQuestion(message.getTextContent());
         log.info("问题改写完成, rewriteResult:{}", rewriteResult);
         if (StringUtils.isBlank(rewriteResult)) {
-            return Mono.error(SystemIntervalException.of("问题改写Agent未返回有效的rewritten_question"));
+            return Mono.error(TripExceptions.system("问题改写Agent未返回有效的rewritten_question"));
         }
 
         // 问题改写结果放到上下文

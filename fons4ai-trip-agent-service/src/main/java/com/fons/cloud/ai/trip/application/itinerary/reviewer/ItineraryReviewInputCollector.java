@@ -16,8 +16,8 @@ import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.Proposal;
 import com.fons.cloud.ai.trip.common.response.ItineraryPlanningResult.TripRequest;
 import com.fons.cloud.ai.trip.common.response.ItineraryReviewEvidence;
 import com.fons.cloud.ai.trip.infrastructure.client.WeatherClient;
-import com.fons.cloud.common.base.exception.BusinessRuntimeException;
-import com.fons.cloud.common.base.exception.SystemIntervalException;
+import com.fons.cloud.common.exception.ExternalException;
+import com.fons.cloud.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -124,7 +124,7 @@ public class ItineraryReviewInputCollector {
                                     city + ":" + forecast.date(), "forecast", context.reviewedAt(),
                                     JSON.toJSONString(forecast), null));
                 }
-            } catch (SystemIntervalException e) {
+            } catch (ExternalException e) {
                 log.warn("[ItineraryReviewInputCollector] 天气查询失败，city={}, date={}", city, date, e);
                 coverageGaps.add(new ItineraryReviewCoverageGap(
                         ItineraryReviewCoverageReason.WEATHER_QUERY_FAILED, city, date));
@@ -183,7 +183,7 @@ public class ItineraryReviewInputCollector {
                     coverageGaps.add(new ItineraryReviewCoverageGap(
                             ItineraryReviewCoverageReason.NEWS_METADATA_MISSING, city, null));
                 }
-            } catch (BusinessRuntimeException | SystemIntervalException e) {
+            } catch (ValidationException | ExternalException e) {
                 // 资讯是可选事实：城市参数或供应商失败均形成覆盖缺口，不影响其他城市/维度收集。
                 log.warn("[ItineraryReviewInputCollector] 交通资讯查询失败，city={}, exceptionType={}", city, e.getClass().getSimpleName());
                 coverageGaps.add(new ItineraryReviewCoverageGap(
