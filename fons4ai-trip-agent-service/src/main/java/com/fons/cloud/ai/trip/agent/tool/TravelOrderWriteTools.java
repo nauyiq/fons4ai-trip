@@ -60,7 +60,7 @@ public class TravelOrderWriteTools implements BaseTool {
         log.info("[TOOL][submit_travel_approval] userId={}, destination={}, departureDate={}, returnDate={}", userId, destination, departureDate, returnDate);
 
         // 参数校验
-        List<String> errors = travelParamsValid(destination, departureCity, departureDate, returnDate, purpose, userId, false);
+        List<String> errors = travelParamsValid(destination, departureCity, departureDate, returnDate, purpose, userId);
         if (CollectionUtils.isNotEmpty(errors)) {
             return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), StringUtils.join(errors, ";"));
         }
@@ -199,27 +199,25 @@ public class TravelOrderWriteTools implements BaseTool {
         String userId = context.getUserId();
         log.info("[TOOL][modify_travel_order] userId={}, orderId={}, force={}", userId, orderId, force);
 
-        // 参数校验
-        if (StringUtils.isBlank(orderId)) {
-            return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), "order_id 不能为空");
-        }
-        List<String> errors = travelParamsValid(destination, departureCity, departureDate, returnDate, purpose, userId, true);
+        // 参数校验：orderId 非空与可选日期格式仅依赖请求自身，收敛到请求对象自校验；userId 来自 RuntimeContext
+        TravelOrderModifyRequest request = TravelOrderModifyRequest.builder()
+                .userId(userId)
+                .orderId(orderId)
+                .destination(destination)
+                .departureCity(departureCity)
+                .departureDate(departureDate)
+                .returnDate(returnDate)
+                .purpose(purpose)
+                .force(Boolean.TRUE.equals(force))
+                .build();
+        List<String> errors = request.validateSelf();
         if (CollectionUtils.isNotEmpty(errors)) {
             return R.failed(TripAgentToolResultCode.INVALID_PARAM.getCode(), StringUtils.join(errors, ";"));
         }
 
         try {
             // 调用应用层服务修改差旅单、撤销旧审批并重新提交
-            R<ModifyTravelApprovalResult> modifyResult = travelBusinessApplicationService.modifyTravelOrder(TravelOrderModifyRequest.builder()
-                    .userId(userId)
-                    .orderId(orderId)
-                    .destination(destination)
-                    .departureCity(departureCity)
-                    .departureDate(departureDate)
-                    .returnDate(returnDate)
-                    .purpose(purpose)
-                    .force(Boolean.TRUE.equals(force))
-                    .build());
+            R<ModifyTravelApprovalResult> modifyResult = travelBusinessApplicationService.modifyTravelOrder(request);
 
             if (!modifyResult.isSuccess()) {
                 // 根据业务码返回不同的工具错误，便于LLM判断后续处理方式
@@ -269,28 +267,30 @@ public class TravelOrderWriteTools implements BaseTool {
     }
 
 
-    private List<String> travelParamsValid(String destination, String departureCity, String departureDate, String returnDate, String purpose, String userId, boolean isModify) {
+    /**
+     * 创建差旅单的参数校验：各字段必填，日期必须是长度 10 的真实 YYYY-MM-DD 日期。
+     * 修改入口的可选字段校验见 {@link TravelOrderModifyRequest#validateSelf()}。
+     */
+    private List<String> travelParamsValid(String destination, String departureCity, String departureDate, String returnDate, String purpose, String userId) {
         List<String> errorParams = new ArrayList<>();
         if (StringUtils.isBlank(userId)) {
             errorParams.add("userId不能为空");
         }
-        if (!isModify && StringUtils.isBlank(destination)) {
+        if (StringUtils.isBlank(destination)) {
             errorParams.add("destination（目的地城市）不能为空");
         }
-        if (!isModify && StringUtils.isBlank(departureCity)) {
+        if (StringUtils.isBlank(departureCity)) {
             errorParams.add("departure_city（出发城市）不能为空");
         }
-        if (!isModify && StringUtils.isBlank(purpose)) {
+        if (StringUtils.isBlank(purpose)) {
             errorParams.add("purpose（出差事由）不能为空");
         }
 
-        String departureDateErr = !isModify || StringUtils.isNotBlank(departureDate)
-                ? validateDate(departureDate, "departure_date（出发日期）") : null;
+        String departureDateErr = validateDate(departureDate, "departure_date（出发日期）");
         if (StringUtils.isNotBlank(departureDateErr)) {
             errorParams.add(departureDateErr);
         }
-        String returnDateErr = !isModify || StringUtils.isNotBlank(returnDate)
-                ? validateDate(returnDate, "return_date（返回日期）") : null;
+        String returnDateErr = validateDate(returnDate, "return_date（返回日期）");
         if (StringUtils.isNotBlank(returnDateErr)) {
             errorParams.add(returnDateErr);
         }

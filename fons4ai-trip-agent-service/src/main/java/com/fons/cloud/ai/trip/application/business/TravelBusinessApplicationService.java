@@ -137,47 +137,116 @@ public class TravelBusinessApplicationService {
      */
     public R<ModifyTravelApprovalResult> modifyTravelOrder(TravelOrderModifyRequest request) {
         log.info("【修改差旅单请求】 request:{}", JSON.toJSONString(request));
+        // 查单：查询时同时限定用户归属
         TravelOrder order = travelOrderDomainService.findByOrderIdAndUserId(request.getOrderId(), request.getUserId());
         if (order == null) {
             return R.failed(TripAgentResultCode.TRAVEL_ORDER_NOT_EXIST);
         }
-
-        // 查询时同时限定用户归属，禁止修改已取消或已完成的差旅单
         TravelOrderStatus orderStatus = order.getStatus();
+
+        // 状态与二次确认
+        R<ModifyTravelApprovalResult> statusRejection = rejectUnmodifiableStatus(orderStatus, request.isForce());
+        if (statusRejection != null) {
+            return statusRejection;
+        }
+
+        // 融合旧值日期范围：仅修改一个日期时，仍需与保留的原日期组合校验
+        R<ModifyTravelApprovalResult> dateRangeRejection = rejectInvertedDateRange(request, order);
+        if (dateRangeRejection != null) {
+            return dateRangeRejection;
+        }
+
+        // 无变化：不撤审、不重提，返回现有记录
+        if (isNoChange(request, order)) {
+            return noChangeResult(order);
+        }
+
+        // 只有行程条件变化时，已发布规划才需要失效。
+        boolean itineraryChanged = isItineraryConditionChanged(request, order);
+
+        // 事务写入
+        ModifyTravelApprovalResult outcome = applyModify(request, order, orderStatus, itineraryChanged);
+        if (outcome == null) {
+            return R.failed(ResultCode.SYSTEM_BUSY);
+        }
+        return R.success(outcome);
+    }
+
+    /**
+     * 校验差旅单状态是否允许修改。
+     * @return 不允许修改时返回对应失败结果；允许修改返回 null
+     */
+    private R<ModifyTravelApprovalResult> rejectUnmodifiableStatus(TravelOrderStatus orderStatus, boolean force) {
         if (orderStatus == TravelOrderStatus.CANCELLED) {
             return R.failed(TripAgentResultCode.TRAVEL_ORDER_STATUS_NOT_SUPPORT_MODIFY.getCode(), "已取消的差旅单不可修改，请重新提交新的出差申请。");
         }
         if (orderStatus == TravelOrderStatus.COMPLETED) {
             return R.failed(TripAgentResultCode.TRAVEL_ORDER_STATUS_NOT_SUPPORT_MODIFY.getCode(), "已完成的差旅单不可修改。");
         }
-        if (orderStatus == TravelOrderStatus.APPROVED && !request.isForce()) {
+        if (orderStatus == TravelOrderStatus.APPROVED && !force) {
             return R.failed(TripAgentResultCode.TRAVEL_ORDER_MODIFY_NEED_USER_SECOND_CONFIRM.getCode(), "该差旅单已审批通过，修改将撤销当前审批并重新发起新流程，需要用户二次确认。");
         }
+        return null;
+    }
 
-        // 仅修改一个日期时，仍需与保留的原日期组合校验
+    /**
+     * 校验融合旧值后的日期范围：请求日期为空时取差旅单原值，出发日期不得晚于返回日期。
+     * 日期格式已由入口校验，这里直接解析，解析异常按原样传播。
+     * @return 日期倒置时返回失败结果；否则返回 null
+     */
+    private R<ModifyTravelApprovalResult> rejectInvertedDateRange(TravelOrderModifyRequest request, TravelOrder order) {
         String departureDate = StringUtils.isNotBlank(request.getDepartureDate()) ? request.getDepartureDate() : order.getDepartureDate();
         String returnDate = StringUtils.isNotBlank(request.getReturnDate()) ? request.getReturnDate() : order.getReturnDate();
         if (LocalDate.parse(departureDate).isAfter(LocalDate.parse(returnDate))) {
             return R.failed(TripAgentResultCode.TRAVEL_ORDER_INVALID_DATE_RANGE.getCode(),
                     StrUtil.format("出发日期（{}）不能晚于返回日期（{}）", departureDate, returnDate));
         }
+        return null;
+    }
 
-        boolean noChange = (StringUtils.isBlank(request.getDestination()) || StringUtils.equals(request.getDestination(), order.getDestination()))
+    /**
+     * 判断本次修改是否无字段变化：省略或空白的字段保留原值，提供的字段与原值一致视为无变化。
+     */
+    private boolean isNoChange(TravelOrderModifyRequest request, TravelOrder order) {
+        return (StringUtils.isBlank(request.getDestination()) || StringUtils.equals(request.getDestination(), order.getDestination()))
                 && (StringUtils.isBlank(request.getDepartureCity()) || StringUtils.equals(request.getDepartureCity(), order.getDepartureCity()))
                 && (StringUtils.isBlank(request.getDepartureDate()) || StringUtils.equals(request.getDepartureDate(), order.getDepartureDate()))
                 && (StringUtils.isBlank(request.getReturnDate()) || StringUtils.equals(request.getReturnDate(), order.getReturnDate()))
                 && (StringUtils.isBlank(request.getPurpose()) || StringUtils.equals(request.getPurpose(), order.getPurpose()));
-        if (noChange) {
-            log.info("【修改差旅单】无字段变更，跳过撤审重提，orderId:{}", order.getOrderId());
-            return R.duplicateSuccess(new ModifyTravelApprovalResult(order.getOrderId(), orderStatus.getCode(), order.getApprovalId(), false, order.getApprovalId(),
-                    null, "无字段变更", "提交的信息与当前差旅单一致，未做任何修改。", List.of(), null));
-        }
+    }
 
-        // 只有行程条件变化时，已发布规划才需要失效。
-        boolean itineraryChanged = (StringUtils.isNotBlank(request.getDestination()) && !StringUtils.equals(request.getDestination(), order.getDestination()))
+    /**
+     * 构造无字段变更的结果：保留当前状态，不撤销审批、不重新提交。
+     */
+    private R<ModifyTravelApprovalResult> noChangeResult(TravelOrder order) {
+        log.info("【修改差旅单】无字段变更，跳过撤审重提，orderId:{}", order.getOrderId());
+        return R.duplicateSuccess(new ModifyTravelApprovalResult(order.getOrderId(), order.getStatus().getCode(), order.getApprovalId(), false, order.getApprovalId(),
+                null, "无字段变更", "提交的信息与当前差旅单一致，未做任何修改。", List.of(), null));
+    }
+
+    /**
+     * 判断行程条件（目的地、出发城市、出发或返回日期）是否变化；仅事由变化不影响已发布规划。
+     */
+    private boolean isItineraryConditionChanged(TravelOrderModifyRequest request, TravelOrder order) {
+        return (StringUtils.isNotBlank(request.getDestination()) && !StringUtils.equals(request.getDestination(), order.getDestination()))
                 || (StringUtils.isNotBlank(request.getDepartureCity()) && !StringUtils.equals(request.getDepartureCity(), order.getDepartureCity()))
                 || (StringUtils.isNotBlank(request.getDepartureDate()) && !StringUtils.equals(request.getDepartureDate(), order.getDepartureDate()))
                 || (StringUtils.isNotBlank(request.getReturnDate()) && !StringUtils.equals(request.getReturnDate(), order.getReturnDate()));
+    }
+
+    /**
+     * 执行有字段变化的修改：先在事务外把传入的非空白字段落到 order 并汇总修改标签，
+     * 再在同一事务内撤销旧审批、保存变更、按需失效已发布规划并重新提交审批。
+     *
+     * @param request 修改请求
+     * @param order 修改前查得的差旅单，方法内会写入新字段值
+     * @param orderStatus 查单时状态，用作事务内快照复核基准
+     * @param itineraryChanged 行程条件是否变化，决定是否失效已发布规划
+     * @return 修改结果；事务执行失败时返回 null，由调用方转换为系统繁忙
+     */
+    private ModifyTravelApprovalResult applyModify(TravelOrderModifyRequest request, TravelOrder order,
+                                                   TravelOrderStatus orderStatus, boolean itineraryChanged) {
+        // 并发主单锁与快照复核基准：进入事务前的字段与状态
         String originalDestination = order.getDestination();
         String originalDepartureCity = order.getDepartureCity();
         String originalDepartureDate = order.getDepartureDate();
@@ -189,7 +258,7 @@ public class TravelBusinessApplicationService {
 
         // 撤销旧审批、保存变更、发起新审批和关联新审批必须原子执行
         String oldApprovalId = order.getApprovalId();
-        ModifyTravelApprovalResult outcome = transactionTemplate.execute(status -> {
+        return transactionTemplate.execute(status -> {
             try {
                 // 修改和方案发布先锁同一主单；快照过期时拒绝覆盖其他请求的结果。
                 TravelOrder current = travelOrderDomainService.findByOrderIdAndUserIdForUpdate(request.getOrderId(), request.getUserId());
@@ -241,10 +310,6 @@ public class TravelBusinessApplicationService {
                 return null;
             }
         });
-        if (outcome == null) {
-            return R.failed(ResultCode.SYSTEM_BUSY);
-        }
-        return R.success(outcome);
     }
 
     /**
